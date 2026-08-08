@@ -15,12 +15,12 @@ Every PKNCA analysis follows the same five steps regardless of route or complexi
 
 ```{mermaid}
 flowchart TD
-    S1["① Prepare data\nconcentration data.frame\ndose data.frame"] --> S2
-    S2["② PKNCAconc()\ndefine conc column, time column,\ngrouping variables, route-specific args"] --> S3
-    S3["③ PKNCAdose()\ndefine dose, time, route\n(intravascular / extravascular)"] --> S4
-    S4["④ PKNCAdata()\ncombine conc + dose\nspecify intervals + imputation + units"] --> S5
-    S5["⑤ pk.nca()\nrun all calculations"] --> S6
-    S6["PKNCAresults\nsummary() / as.data.frame()"]
+    S1["① Prepare data<br/>concentration data.frame<br/>dose data.frame"] --> S2
+    S2["② PKNCAconc()<br/>define conc column, time column,<br/>grouping variables, route-specific args"] --> S3
+    S3["③ PKNCAdose()<br/>define dose, time, route<br/>(intravascular / extravascular)"] --> S4
+    S4["④ PKNCAdata()<br/>combine conc + dose<br/>specify intervals + imputation + units"] --> S5
+    S5["⑤ pk.nca()<br/>run all calculations"] --> S6
+    S6["PKNCAresults<br/>summary() / as.data.frame()"]
 
     style S1 fill:#f0f4ff
     style S6 fill:#e8f5e9

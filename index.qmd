@@ -25,11 +25,11 @@ This book was built against **PKNCA `r pknca_ver`**. Examples are verified again
 
 ```{mermaid}
 flowchart LR
-    A[Concentration\ndata frame] --> B[PKNCAconc]
-    C[Dose\ndata frame] --> D[PKNCAdose]
+    A["Concentration<br/>data frame"] --> B[PKNCAconc]
+    C["Dose<br/>data frame"] --> D[PKNCAdose]
     B --> E[PKNCAdata]
     D --> E
-    F[Intervals\nspecification] -.->|optional override| E
+    F["Intervals<br/>specification"] -.->|optional override| E
     E --> G[pk.nca]
     G --> H[PKNCAresults]
     H --> I[summary]

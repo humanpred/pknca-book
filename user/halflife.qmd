@@ -32,7 +32,7 @@ The small tolerance (`adj.r.squared.factor`, default 0.0001) means: prefer longe
 flowchart TD
     A["All points after Tmax"] --> B["Try subsets: last 3, last 4, ..., all"]
     B --> C["Fit log-linear regression to each"]
-    C --> D{"Passes quality filters?\nλz > 0, R² ≥ threshold\nspan.ratio ≥ minimum"}
+    C --> D{"Passes quality filters?<br/>λz > 0, R² ≥ threshold<br/>span.ratio ≥ minimum"}
     D -- yes --> E["Compute adj.R²"]
     D -- no --> F["Discard subset"]
     E --> G["Select longest window within adj.r.squared.factor of best adj.R²"]

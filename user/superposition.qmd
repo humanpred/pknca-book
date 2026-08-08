@@ -24,9 +24,9 @@ The core assumption is **linear, time-invariant pharmacokinetics**: the drug doe
 
 ```{mermaid}
 flowchart LR
-    A["Single dose\nprofile (0→∞)"] --> B["Shift by τ,\nshift by 2τ, ..."]
-    B --> C["Sum contributions\nat each time t"]
-    C --> D["Predicted SS\nprofile (0→τ)"]
+    A["Single dose<br/>profile (0→∞)"] --> B["Shift by τ,<br/>shift by 2τ, ..."]
+    B --> C["Sum contributions<br/>at each time t"]
+    C --> D["Predicted SS<br/>profile (0→τ)"]
 ```
 
 ---
