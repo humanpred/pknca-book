@@ -33,7 +33,8 @@ _quarto.yml              # book config: title, author, chapters, site-url, navba
 index.qmd                # introduction + What's new per version
 user/                    # 19 User Guide chapters
 dev/                     # 2 Developer Reference chapters
-.github/workflows/book.yml  # CI: renders and deploys to GitHub Pages on push to main
+validate.R               # numeric self-check of key documented examples (Rscript validate.R; exits 1 on failure)
+.github/workflows/book.yml  # CI: runs validate.R, renders, deploys to GitHub Pages on push to main
 _book/                   # rendered output (gitignored)
 ```
 
