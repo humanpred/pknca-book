@@ -5,7 +5,6 @@ title: "Utility Functions"
 ```{r setup, include=FALSE}
 library(PKNCA)
 library(dplyr)
-library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
@@ -80,7 +79,7 @@ interp.extrap.conc(conc = conc_ex, time = time_ex, time.out = 12,
                    lambda.z = hl_ex$lambda.z)
 ```
 
-The method (linear vs log-linear) follows the `auc.method` setting. Extrapolation beyond Tlast requires supplying `lambda.z` (the terminal slope) — the function never estimates λz itself, and without `lambda.z` the result is `NA`.
+The method (linear vs log-linear) follows the `auc.method` setting. Extrapolation beyond Tlast requires supplying `lambda.z` (the terminal slope) — the function never estimates λz itself, and without `lambda.z` the result is `NA`. The example above estimates it with `pk.calc.half.life()`, covered next.
 
 ---
 

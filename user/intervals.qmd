@@ -9,7 +9,7 @@ library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-Intervals tell PKNCA *when* to calculate and *what* to calculate. Every NCA parameter is associated with exactly one interval row, and each row is independent of all others.
+Intervals tell PKNCA *when* to calculate and *what* to calculate. Every calculated parameter value comes from exactly one interval row, and each row is independent of all others.
 
 ---
 
@@ -56,9 +56,7 @@ A parameter cannot be named `start`, `end`, or the same as a grouping variable y
 PKNCA matches interval rows to concentration data by comparing the **shared column names** between the interval data frame and the grouping columns of the concentration object. Any column that appears in both is used as a matching key.
 
 ```{r group-matching}
-data("Theoph")
-
-d_conc <- PKNCAconc(Theoph, conc ~ Time | Subject)
+o_conc <- PKNCAconc(Theoph, conc ~ Time | Subject)
 
 # Intervals with a Subject column — each row applies to exactly one subject
 subject_intervals <- data.frame(
@@ -81,11 +79,11 @@ If an interval row has no group columns, it is a **default interval** and is app
 Running the subject-specific intervals shows the matching in action. To keep the output short, restrict the concentration data to subjects 1–3. Subject 3 has no matching interval row, so PKNCA warns about it and returns results only for subjects 1 and 2 (no dose object is needed here because `auclast` is dose-independent):
 
 ```{r group-matching-run}
-d_conc_subset <- PKNCAconc(
+o_conc_subset <- PKNCAconc(
   Theoph |> filter(Subject %in% c("1", "2", "3")),
   conc ~ Time | Subject
 )
-o_data_subj <- PKNCAdata(d_conc_subset, intervals = subject_intervals)
+o_data_subj <- PKNCAdata(o_conc_subset, intervals = subject_intervals)
 o_nca_subj  <- pk.nca(o_data_subj)
 
 as.data.frame(o_nca_subj) |>
@@ -110,7 +108,7 @@ The two default rows are:
 These defaults are suitable for a single-dose extravascular study with at least 24 hours of sampling. For any other design (multiple dose, IV, urine, etc.) you should supply explicit intervals.
 
 ```{r use-default}
-d_dose <- PKNCAdose(
+o_dose <- PKNCAdose(
   Theoph |> group_by(Subject) |>
     summarise(Dose = Dose[1] * Wt[1], .groups = "drop") |>
     mutate(Time = 0),
@@ -118,11 +116,11 @@ d_dose <- PKNCAdose(
 )
 
 # No intervals argument — uses PKNCA.options("single.dose.aucs") automatically
-d_data_default <- PKNCAdata(
+o_data_default <- PKNCAdata(
   PKNCAconc(Theoph, conc ~ Time | Subject),
-  d_dose
+  o_dose
 )
-d_data_default$intervals
+o_data_default$intervals
 ```
 
 ---
@@ -166,18 +164,18 @@ urine_conc <- data.frame(
   conc     = c(20, 15, 5),      # urine concentration (mg/L)
   volume   = c(0.5, 0.6, 1.2)   # collected urine volume (L)
 )
-d_urine_conc <- PKNCAconc(
+o_urine_conc <- PKNCAconc(
   urine_conc, conc ~ time | Subject,
   duration = "duration", volume = "volume"
 )
-d_urine_dose <- PKNCAdose(
+o_urine_dose <- PKNCAdose(
   data.frame(Subject = 1, dose = 100, time = 0),
   dose ~ time | Subject
 )
 # end = 24 matches the end of the final collection (8 + 16 = 24)
 urine_intervals <- data.frame(start = 0, end = 24, ae = TRUE)
 
-o_urine <- pk.nca(PKNCAdata(d_urine_conc, d_urine_dose, intervals = urine_intervals))
+o_urine <- pk.nca(PKNCAdata(o_urine_conc, o_urine_dose, intervals = urine_intervals))
 as.data.frame(o_urine)
 ```
 
@@ -222,7 +220,7 @@ Parameters fall into broad families:
 - **Clearance / Volume** — `cl.obs`, `cl.pred`, `vz.obs`, `vz.pred`, `vss.obs`, `vss.iv.obs`, renal `clr.*`
 - **Elimination** — `half.life`, `lambda.z`, `lambda.z.n.points`, `span.ratio`, `r.squared`, `adj.r.squared`
 - **Excretion** — `ae`, `fe`
-- **Steady-state / MD** — `deg.fluc`, `swing`, `ptr`, `cav`, `mrt.*`, `thalf.eff.*`
+- **Steady-state / multiple-dose** — `deg.fluc`, `swing`, `ptr`, `cav`, `mrt.*`, `thalf.eff.*`
 - **Sparse sampling** — `sparse_auclast`, `sparse_auc_se`, `sparse_auc_df`
 - **IV-specific** — `aucivlast`, `aucivpbext*`, `aucivinf.*`
 - **Dose-normalized** — `auclast.dn`, `cmax.dn`, and other `*.dn` variants
@@ -271,8 +269,8 @@ check.interval.specification(bad_int)
 `check.interval.specification()` returns the interval data frame invisibly on success, making it safe to use inline before passing to `PKNCAdata()`:
 
 ```{r check-inline}
-d_conc <- PKNCAconc(Theoph, conc ~ Time | Subject)
-d_dose <- PKNCAdose(
+o_conc <- PKNCAconc(Theoph, conc ~ Time | Subject)
+o_dose <- PKNCAdose(
   Theoph |> group_by(Subject) |>
     summarise(Dose = Dose[1] * Wt[1], .groups = "drop") |>
     mutate(Time = 0),
@@ -290,8 +288,8 @@ my_intervals <- check.interval.specification(
   )
 )
 
-d_data <- PKNCAdata(d_conc, d_dose, intervals = my_intervals)
-suppressMessages(o_nca <- pk.nca(d_data))
+o_data <- PKNCAdata(o_conc, o_dose, intervals = my_intervals)
+o_nca <- pk.nca(o_data)
 as.data.frame(o_nca) |> head(8)
 ```
 

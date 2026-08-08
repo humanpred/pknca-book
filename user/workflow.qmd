@@ -215,6 +215,8 @@ o_data_strict <- PKNCAdata(
 
 ## Extracting and plotting results
 
+`as.data.frame()` returns one row per parameter per interval — a tidy shape ready for dplyr and ggplot2.
+
 ```{r}
 results_df <- as.data.frame(o_nca)
 

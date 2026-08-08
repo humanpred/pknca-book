@@ -179,7 +179,7 @@ Here `ceoi` equals `cmax` because an infusion peaks exactly when the pump stops.
 
 ---
 
-## Multiple dose intervals in one dataset
+## Multiple dosing occasions in one dataset
 
 When data span multiple dose occasions, define one interval row per occasion per group. PKNCA applies each interval independently.
 

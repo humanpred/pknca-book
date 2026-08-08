@@ -7,7 +7,31 @@ library(PKNCA)
 library(dplyr)
 library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
+```
 
+## Why post-process?
+
+After `pk.nca()` you may need to:
+
+1. **Exclude** specific results that failed QC (poor half-life fit, protocol deviation)
+2. **Normalize** parameters by dose (built-in `.dn` variants)
+3. **Summarize** with custom statistics, respecting exclusions
+4. **Extract** results as a tidy data frame for further analysis
+5. **Report** with the `business.*` summary helper functions
+6. **Inspect** which concentrations each λz regression used
+
+All of this operates on the `PKNCAresults` object without rerunning the analysis.
+
+---
+
+## Example data and analysis
+
+Every section below post-processes the same `PKNCAresults` object, built from
+the Theoph dataset. The interval requests the headline parameters plus the
+regression-quality metrics that the exclusion demos rely on (`span.ratio`,
+`adj.r.squared`, `aucpext.obs`):
+
+```{r}
 d_conc <- as.data.frame(Theoph) |> rename(time = Time, subject = Subject)
 d_dose <- Theoph |> as.data.frame() |>
   group_by(Subject) |>
@@ -25,19 +49,6 @@ o_data <- PKNCAdata(o_conc, o_dose, intervals = data.frame(
 ))
 o_nca <- pk.nca(o_data)
 ```
-
-## Why post-process?
-
-After `pk.nca()` you may need to:
-
-1. **Exclude** specific results that failed QC (poor half-life fit, protocol deviation)
-2. **Normalize** parameters by dose (built-in `.dn` variants)
-3. **Summarize** with custom statistics, respecting exclusions
-4. **Extract** results as a tidy data frame for further analysis
-5. **Report** with the `business.*` summary helper functions
-6. **Inspect** which concentrations each λz regression used
-
-All of this operates on the `PKNCAresults` object without rerunning the analysis.
 
 ---
 
@@ -135,6 +146,11 @@ as.data.frame(o_nca_multi) |>
 
 ### Exclusions are respected in summary
 
+Excluded values are dropped from the summary statistics: the parameters
+affected by the span-ratio rule are summarized over fewer subjects, and the
+caption defines the resulting `n=` annotation as the number of measurements
+included in the summary.
+
 ```{r}
 summary(o_nca_span)
 ```
@@ -145,7 +161,7 @@ summary(o_nca_span)
 
 PKNCA has built-in dose-normalized variants for several parameters. Request them in the interval — they are automatically computed as `parameter / dose`.
 
-All available dose-normalized parameters (retrieved dynamically from registry):
+All available dose-normalized parameters, retrieved dynamically from the interval-column registry (`get.interval.cols()`):
 
 ```{r}
 cols <- get.interval.cols()
@@ -245,21 +261,23 @@ PKNCA.set.summary(
 summary(o_nca)
 ```
 
-Restore to default (geometric mean ± geometric CV%):
+Restore the defaults — `business.geomean`/`business.geocv` for `auclast` and
+`business.median`/`business.range` for `tmax` (the `business.*` helpers are
+covered in the next section):
 
 ```{r}
 PKNCA.set.summary(
   "auclast",
-  description = "geometric mean [geometric CV%]",
-  point  = PKNCA::geomean,
-  spread = PKNCA::geocv
+  description = "geometric mean and geometric coefficient of variation",
+  point  = business.geomean,
+  spread = business.geocv
 )
 
 PKNCA.set.summary(
   "tmax",
-  description = "median [min, max]",
-  point  = median,
-  spread = function(x) c(min(x), max(x))
+  description = "median and range",
+  point  = business.median,
+  spread = business.range
 )
 ```
 
@@ -293,7 +311,7 @@ data.frame(
 )
 ```
 
-Use these as `point` and `spread` arguments to `PKNCA.set.summary()`:
+Use these as `point` and `spread` arguments to `PKNCA.set.summary()` — rerunning `summary()` shows the new `cmax` presentation:
 
 ```{r}
 # Arithmetic mean ± CV% for Cmax
@@ -303,6 +321,8 @@ PKNCA.set.summary(
   point  = business.mean,
   spread = business.cv
 )
+
+summary(o_nca)
 ```
 
 ---
@@ -311,21 +331,11 @@ PKNCA.set.summary(
 
 `get_halflife_points()` returns a logical vector aligned with the original concentration data — `TRUE` if that observation was used in the λz regression, `FALSE` if it was available but excluded, `NA` if half-life was not computed for that interval. In PKNCA ≥ 0.12.2 it also accepts a `PKNCAdata` object directly and handles `start ≠ 0` intervals correctly.
 
+Because the example analysis requested `half.life`, `o_nca` already carries the λz fits:
+
 ```{r}
-d_conc_pp <- as.data.frame(Theoph) |> rename(time = Time, subject = Subject)
-d_dose_pp <- Theoph |> as.data.frame() |>
-  group_by(Subject) |>
-  summarise(dose = Dose[1] * Wt[1], .groups = "drop") |>
-  rename(subject = Subject) |>
-  mutate(time = 0)
-
-o_conc_pp <- PKNCAconc(d_conc_pp, conc ~ time | subject)
-o_dose_pp <- PKNCAdose(d_dose_pp, dose ~ time | subject, route = "extravascular")
-o_nca_pp  <- pk.nca(PKNCAdata(o_conc_pp, o_dose_pp,
-                               intervals = data.frame(start = 0, end = Inf, half.life = TRUE)))
-
-# Logical vector (TRUE = used in lambda.z fit)
-hl_used <- get_halflife_points(o_nca_pp)
+# Logical vector (TRUE = used in lambda.z fit), aligned with the rows of d_conc
+hl_used <- get_halflife_points(o_nca)
 table(hl_used, useNA = "always")
 ```
 
@@ -336,7 +346,7 @@ head(get_halflife_points(o_data))
 
 ```{r}
 # Attach to concentration data for plotting
-d_conc_annotated <- d_conc_pp |> mutate(in_lambda_z = hl_used)
+d_conc_annotated <- d_conc |> mutate(in_lambda_z = hl_used)
 subj1_conc <- d_conc_annotated |> filter(subject == "1")
 
 ggplot(subj1_conc, aes(x = time, y = conc, colour = in_lambda_z)) +

@@ -450,7 +450,7 @@ o_dose_inf <- PKNCAdose(
 
 ### Infusion-specific parameter: `ceoi`
 
-`ceoi` is the concentration at the **end of infusion** — the PK analogue of Cmax for extravascular routes. PKNCA interpolates it from the surrounding observed timepoints using the current AUC method.
+`ceoi` is the concentration at the **end of infusion** — for an infusion, `ceoi` plays the role that Cmax plays for extravascular dosing. PKNCA interpolates it from the surrounding observed timepoints using the current AUC method.
 
 ```{r}
 inf_intervals <- data.frame(
@@ -552,7 +552,7 @@ o_conc_excl <- PKNCAconc(d_conc_with_excl, conc ~ time | Subject, exclude = "exc
 as.data.frame(o_conc_excl) |> filter(!is.na(excl))
 ```
 
-The exclusion reason travels with the data (shown above), and the excluded point is dropped from every parameter calculation — the λz exclusion example above shows the resulting change in `lambda.z.n.points`.
+The exclusion reason travels with the data (shown above), and the excluded point is dropped from every parameter calculation. This is broader than the `exclude_half.life` example in the half-life section, which removed a point from only the λz regression.
 
 Below-limit-of-quantification (BLQ) values are handled separately from exclusions, via the `conc.blq` option — see the [BLQ section of the Extravascular chapter](extravascular.qmd#blq-below-limit-of-quantification-handling).
 

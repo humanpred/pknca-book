@@ -32,7 +32,7 @@ Standard concentration interpolation (e.g., `interp.extrap.conc()`) assumes a sm
 
 ---
 
-## Shared example data
+## Example data: single oral dose
 
 ```{r}
 # Single-dose oral profile (absorption + elimination)
@@ -56,7 +56,7 @@ ggplot(d, aes(x = time, y = conc)) +
 When the target time is **between** observed samples and does not coincide with a dose, the result equals standard log-linear interpolation.
 
 ```{r}
-# t = 4h falls between t=3 and t=5
+# t = 4 h falls between t = 3 and t = 5
 interp.extrap.conc.dose(
   conc       = conc,
   time       = time,
@@ -132,7 +132,7 @@ The pre-dose value is the measured trough (2.5). The post-dose value (about 11.0
 
 ## Multiple dose times
 
-Provide a vector to `time.dose` when multiple doses were given during the sampling window.
+The IV bolus example above already passed two dose times — `time.dose` accepts a vector whenever multiple doses were given during the sampling window. Here is the same two-dose scenario with oral dosing.
 
 ```{r}
 # Oral doses at t=0 and t=6
@@ -185,7 +185,7 @@ Because `duration.dose > 0`, the dose is treated as an infusion rather than a bo
 
 ## Extrapolating beyond the last sample
 
-Extrapolation past the last measured concentration requires an elimination rate: pass `lambda.z` (forwarded via `...` to the extrapolation functions). Without it, the result is `NA`.
+Returning to the single oral-dose profile from the top of the page (last sample at t = 10): extrapolation past the last measured concentration requires an elimination rate. Pass `lambda.z` (forwarded via `...` to the extrapolation functions); without it, the result is `NA`.
 
 ```{r}
 # t=14 is beyond the last sample (t=10); without lambda.z the result is NA

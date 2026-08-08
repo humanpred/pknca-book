@@ -5,7 +5,6 @@ title: "Writing Custom Parameter Functions"
 ```{r setup, include=FALSE}
 library(PKNCA)
 library(dplyr)
-library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 # Shared dataset
@@ -124,7 +123,7 @@ as.data.frame(o_nca_er) |>
 
 ## Example 2: computed from raw concentration-time data
 
-A parameter that accesses `conc` and `time` directly. PKNCA passes the raw vectors from the concentration data. No `depends` needed — just use `conc` and `time` as argument names and map them in `formalsmap`.
+A parameter that accesses `conc` and `time` directly. PKNCA passes the raw vectors from the concentration data. No `depends` needed. The identity `formalsmap` below is shown for explicitness — because the argument names match PKNCA's standard names, it could equally be omitted.
 
 ```{r}
 # Concentration at exactly 2 hours (interpolated)

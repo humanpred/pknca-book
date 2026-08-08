@@ -150,8 +150,10 @@ nothing, the interval still has no concentration at its start time, and
 
 ## Applying imputation globally
 
-Pass a method name string to the `impute` argument of `PKNCAdata()`. The same
-strategy is applied to every subject and every interval.
+The single-strategy examples above already used the global form: pass a method
+name string to the `impute` argument of `PKNCAdata()`, and the same strategy is
+applied to every subject and every interval — the side-by-side comparison
+restricted itself to subject 1 only to keep the output small.
 
 ```{r}
 o_data_global <- PKNCAdata(o_conc, o_dose, impute = "start_conc0")
@@ -170,7 +172,9 @@ df_global |>
 
 ## Chaining methods
 
-Provide a comma-separated string to apply methods in sequence. Methods are
+The side-by-side comparison left `start_predose` with an `NA` because this
+dataset has no pre-dose sample. Chaining resolves exactly that situation:
+provide a comma-separated string to apply methods in sequence. Methods are
 applied in order; a later method has no effect if an earlier one already
 added a point at the interval start.
 
@@ -189,6 +193,10 @@ as.data.frame(res_chain) |>
   dplyr::filter(Subject == "1", PPTESTCD == "auclast") |>
   dplyr::select(Subject, PPTESTCD, PPORRES)
 ```
+
+For subject 1 the chained result matches the global `start_conc0` run in the
+previous section: `start_predose` found no pre-dose sample to carry forward,
+so the fallback inserted the zero.
 
 ---
 

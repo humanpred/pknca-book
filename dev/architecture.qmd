@@ -159,7 +159,7 @@ All of these are exported except where marked internal:
 
 ---
 
-> This overview covers the surface. The formalsmap system, business rules (`002-pk.business.rules.R`), and the validation framework (`v60-PKNCA-validation.Rmd`) are richer topics worth exploring further.
+> This overview covers the surface. The business rules (`002-pk.business.rules.R`) and the validation framework (`v60-PKNCA-validation.Rmd`) in the PKNCA sources are richer topics worth exploring further.
 
 
 ---

@@ -9,13 +9,7 @@ library(dplyr)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-## Overview
-
-PKNCA resolves parameter dependencies automatically. When you request `aucinf.obs`, PKNCA internally ensures `lambda.z` is computed first because `aucinf.obs` depends on it. This graph makes those dependencies explicit.
-
-## How dependencies are defined
-
-Every NCA parameter is registered via `add.interval.col()` with a `depends` vector listing the parameters that must be computed before it. The full registry is accessible via `get.interval.cols()`.
+PKNCA resolves parameter dependencies automatically: when you request `aucinf.obs`, PKNCA internally ensures `lambda.z` is computed first because `aucinf.obs` depends on it. These dependencies are declared at registration time — every NCA parameter is registered via `add.interval.col()` with a `depends` vector naming the parameters that must be computed before it, and the full registry is accessible via `get.interval.cols()`. The graph below makes the whole dependency network explicit.
 
 ## Interactive dependency graph
 
@@ -64,10 +58,9 @@ nodes <- data.frame(
   label = all_nodes,
   group = categorise(all_nodes),
   stringsAsFactors = FALSE
-) |>
-  mutate(color = category_colours[group])
+)
 
-visNetwork(nodes, edges,
+graph <- visNetwork(nodes, edges,
            width = "100%", height = "700px",
            main = "PKNCA NCA Parameter Dependencies") |>
   visNodes(shape = "dot", size = 14,
@@ -83,6 +76,13 @@ visNetwork(nodes, edges,
   visLegend(useGroups = TRUE, position = "right") |>
   visPhysics(stabilization = list(iterations = 200)) |>
   visLayout(randomSeed = 42)
+
+# Register each category as a visNetwork group: nodes and legend swatches both
+# take their colour from the group definition, so they always match
+for (grp in names(category_colours)) {
+  graph <- visGroups(graph, groupname = grp, color = category_colours[[grp]])
+}
+graph
 ```
 
 **How to use this graph:**

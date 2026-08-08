@@ -5,7 +5,6 @@ title: "Regulatory and CDISC Context"
 ```{r setup, include=FALSE}
 library(PKNCA)
 library(dplyr)
-library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 

@@ -81,7 +81,7 @@ as.data.frame(o_nca) |>
 
 ## Quality filters
 
-PKNCA applies one filter **during fitting** and exposes additional parameters you use to flag or exclude results **after fitting** with `exclude()`.
+PKNCA provides one filter enforced **during fitting**, several post-hoc exclusion thresholds applied **after fitting** with `exclude()`, and one fitting option:
 
 > **Important distinction:** Only `min.hl.points` is enforced inside `pk.calc.half.life()` — with too few points, `half.life` is `NA` immediately. `min.hl.r.squared` and `min.span.ratio` are **not** consulted during fitting; they are thresholds for `exclude()` calls after `pk.nca()`.
 
@@ -230,15 +230,15 @@ Tobit regression handles this correctly by treating each BLQ observation as a **
 OLS minimises the sum of squared residuals across observed concentrations. Tobit instead **maximises a likelihood** that has two components:
 
 1. **Observed concentrations** (above LLOQ): contribute via the normal log-likelihood of the log-transformed concentration given the fitted log-linear line.
-2. **BLQ observations**: contribute the cumulative probability that the true (unobserved) concentration falls at or below the LLOQ, i.e. `Φ((log(LLOQ) − predicted) / σ)`.
+2. **BLQ observations**: contribute the cumulative probability that the true (unobserved) concentration falls at or below the LLOQ, i.e. `Φ((log(LLOQ) − predicted) / σ)`, where Φ is the standard normal CDF and σ the residual standard deviation.
 
 This means BLQ timepoints actively inform the slope estimate — they pull the λz estimate toward the true terminal slope — rather than being discarded.
 
 ### When to consider Tobit
 
-Tobit regression is most beneficial when:
+Tobit regression is most beneficial in the following situations:
 
-- As a rough rule of thumb (not a documented PKNCA threshold), consider Tobit when a substantial fraction — say a fifth or more — of terminal-phase observations are BLQ; with few or no BLQ points, OLS and Tobit give similar estimates.
+- A substantial fraction of terminal-phase observations — as a rough rule of thumb (not a documented PKNCA threshold), a fifth or more — are BLQ. With few or no BLQ points, OLS and Tobit give similar estimates.
 - The drug has **low tissue concentrations** or a short distribution half-life relative to the sampling schedule, making late timepoints frequently BLQ.
 - **Pediatric or geriatric studies** with limited sampling windows, where sparse late-time samples are often at or near the LLOQ.
 - The terminal slope is important for downstream parameters (AUC extrapolation, mean residence time) and precision matters for regulatory submissions.
@@ -347,7 +347,7 @@ as.data.frame(o_nca_corrxy) |>
 ```{r}
 # Extract lambda.z.time.first and n.points to annotate the plot
 hl_results <- as.data.frame(o_nca) |>
-  filter(PPTESTCD %in% c("lambda.z.time.first", "lambda.z.n.points", "tmax")) |>
+  filter(PPTESTCD %in% c("lambda.z.time.first", "lambda.z.n.points")) |>
   tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES)
 
 # Plot subject 1 with regression window highlighted
@@ -366,7 +366,6 @@ ggplot(subj1, aes(x = time, y = conc)) +
        x = "Time (h)", y = "Concentration (mg/L) [log scale]") +
   theme_minimal()
 ```
-
 
 ---
 

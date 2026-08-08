@@ -12,8 +12,8 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ## Why units matter
 
 By default PKNCA returns bare numbers. When you provide units, every row in
-`as.data.frame()` gains CDISC-style columns that mirror the SDTM PK-Parameters
-domain:
+`as.data.frame()` gains columns that mirror the CDISC SDTM (Study Data
+Tabulation Model) PP (PK Parameters) domain:
 
 | Column | Meaning |
 |--------|---------|
@@ -146,22 +146,19 @@ u[u$PPTESTCD %in% c("cmax", "auclast", "tmax", "cl.obs", "vz.obs"), ]
 
 ## Passing the units table to `PKNCAdata()`
 
-Pass the table via the `units` argument. If `units` is provided, it takes
-precedence: any units given directly to `PKNCAconc()` or `PKNCAdose()` are
-ignored. The example below sets a deliberately different concentration unit
-(`ng/mL`) on the `PKNCAconc` object to demonstrate this — the results report
-`mg/L` from the table.
+Pass the table via the `units` argument, reusing `u` from above. If `units` is
+provided, it takes precedence: any units given directly to `PKNCAconc()` or
+`PKNCAdose()` are ignored. The example below sets a deliberately different
+concentration unit (`ng/mL`) on the `PKNCAconc` object to demonstrate this —
+the results report `mg/L` from the table.
 
 ```{r}
-# Units set on the objects are superseded by the units table below
+# Units set on the objects are superseded by the units table passed to PKNCAdata()
 o_conc2 <- PKNCAconc(Theoph_df, conc ~ Time | Subject,
                      concu = "ng/mL", timeu = "h")
 o_dose2  <- PKNCAdose(d_dose, amt ~ Time | Subject, doseu = "mg")
 
-u <- pknca_units_table(concu = "mg/L", timeu = "h",
-                       doseu = "mg", amountu = "mg")
-
-o_data <- PKNCAdata(o_conc2, o_dose2, units = u)
+o_data <- PKNCAdata(o_conc2, o_dose2, units = u)  # u built in the section above
 
 # Run NCA
 res <- pk.nca(o_data)
@@ -169,11 +166,17 @@ res <- pk.nca(o_data)
 # Units appear in the PPORRESU column: mg/L from the table,
 # not the ng/mL set on the object
 df <- as.data.frame(res)
+stopifnot("PPORRESU" %in% names(df))  # unit column present on every row
+
 df |>
   dplyr::filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "cmax", "tmax", "cl.obs")) |>
   dplyr::select(PPTESTCD, PPORRES, PPORRESU)
 ```
+
+Whenever a units table is in effect, `PPORRESU` is populated for every result
+row. The standardised-unit columns `PPSTRESU` and `PPSTRES` appear only when
+preferred or custom conversions are requested, as the next sections show.
 
 ---
 
@@ -254,27 +257,6 @@ as.data.frame(res_custom) |>
   dplyr::filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "cmax")) |>
   dplyr::select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
-```
-
----
-
-## Verifying units in results
-
-Call `as.data.frame()` on the `PKNCAresults` object. When a units table was
-provided, the `PPORRESU` column is always populated; `PPSTRESU` and `PPSTRES`
-appear only when preferred or custom conversions are in effect.
-
-```{r}
-df_all <- as.data.frame(res)
-
-# Confirm PPORRESU is present for every row
-stopifnot("PPORRESU" %in% names(df_all))
-
-# Browse the first several parameter results for subject 1
-df_all |>
-  dplyr::filter(Subject == "1") |>
-  dplyr::select(PPTESTCD, PPORRES, PPORRESU) |>
-  head(10)
 ```
 
 ---

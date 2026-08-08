@@ -129,9 +129,9 @@ mean_profile
 
 ## BLQ handling in sparse PK
 
-`sparse = TRUE` affects how BLQ values (coded as 0) are treated at each timepoint before averaging. The default BLQ treatment is controlled by `PKNCA.options("conc.blq")` and applies **before** the mean is computed.
+`sparse = TRUE` affects how below-the-limit-of-quantification (BLQ) values (coded as 0) are treated at each timepoint before averaging. The default BLQ treatment is controlled by `PKNCA.options("conc.blq")` and applies **before** the mean is computed.
 
-Available mean methods (controlled internally):
+By default the mean profile uses the arithmetic mean with up-to-50%-BLQ handling (`"arithmetic mean, <=50% BLQ"`; see `?sparse_mean`); the method is not a user-facing option. The two internal methods:
 
 - **`"arithmetic mean"`** — simple mean of all values including BLQs as 0
 - **`"arithmetic mean, <=50% BLQ"`** — if **strictly more than 50%** of subjects at a timepoint are BLQ, the mean concentration at that timepoint is set to 0 (at exactly 50% BLQ the mean is not zeroed)
@@ -162,8 +162,6 @@ o_data_mixed  <- PKNCAdata(
   intervals = data.frame(start = 0, end = Inf, sparse_auclast = TRUE)
 )
 o_nca_mixed <- pk.nca(o_data_mixed)
-# Note: degrees of freedom (sparse_auc_df) cannot be calculated
-# when any subject contributes multiple samples — a current PKNCA limitation
 as.data.frame(o_nca_mixed)
 ```
 

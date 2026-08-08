@@ -76,6 +76,8 @@ tss_mono
 
 ### Changing the fraction threshold
 
+A stricter 95% definition of steady state gives a later TSS:
+
 ```{r}
 # 95% of Css
 pk.tss.monoexponential(
@@ -110,7 +112,7 @@ The result is a data frame with a `tss.stepwise.linear` column containing the fi
 
 ---
 
-## Combined method (`pk.tss`)
+## Running both methods (`pk.tss`)
 
 `pk.tss()` runs both methods and returns results side by side:
 
@@ -129,15 +131,16 @@ tss_combined
 
 ## Key arguments
 
-| Argument | Default | Meaning |
-|---|---|---|
-| `conc` | — | Trough concentrations (one per dose occasion per subject) |
-| `time` | — | Dose occasion numbers or actual clock times |
-| `subject` | — | Subject identifiers |
-| `time.dosing` | — | All possible dosing occasions in the study (needed to define the full grid) |
-| `tss.fraction` | `0.9` | Fraction of Css that defines "at steady state" (monoexponential method) |
-| `output` | `c("population","popind","individual","single")` | Which output types to return |
-| `verbose` | `FALSE` | Print model fitting details |
+| Argument | Default | Applies to | Meaning |
+|---|---|---|---|
+| `conc` | — | both | Trough concentrations (one per dose occasion per subject) |
+| `time` | — | both | Dose occasion numbers or actual clock times |
+| `subject` | — | both | Subject identifiers |
+| `time.dosing` | — | both | Every dosing time; concentrations at these times are treated as the trough observations the models fit |
+| `type` | `c("monoexponential", "stepwise.linear")` | `pk.tss` wrapper | Which method(s) to run — both by default |
+| `tss.fraction` | `0.9` | monoexponential | Fraction of Css that defines "at steady state" |
+| `output` | `c("population","popind","individual","single")` | monoexponential | Which output types to return |
+| `verbose` | `FALSE` | both | Print model fitting details |
 
 > **Note:** TSS estimation requires **multiple dose occasions with consistent trough sampling**. It is not applicable to single-dose studies or studies where trough collection was inconsistent.
 

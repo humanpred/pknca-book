@@ -21,16 +21,7 @@ o_dose <- PKNCAdose(d_dose, dose ~ time | subject, route = "extravascular")
 
 ## AUC types
 
-PKNCA offers four families of AUC, each answering a different question:
-
-```{mermaid}
-flowchart LR
-    A["AUClast<br/>0 → last measurable"]
-    B["AUCall<br/>0 → last, zeros for BLQ"]
-    C["AUCinf.obs<br/>0 → ∞ (observed Clast)"]
-    D["AUCinf.pred<br/>0 → ∞ (predicted Clast)"]
-    E["AUCint / partial<br/>0 → t (any t)"]
-```
+PKNCA offers four families of AUC — AUClast, AUCall, AUCinf (in observed and predicted flavors), and partial/interval AUC — each answering a different question. They differ in where integration ends and in how concentrations below the limit of quantification (BLQ) are treated:
 
 | Parameter | End point | BLQ treatment | When to use |
 |---|---|---|---|
@@ -201,7 +192,7 @@ The 20% default comes from the `max.aucinf.pext` option — but the option's onl
 The integration method controls how the area of each trapezoid is computed between consecutive timepoints.
 
 ```{r}
-# Visual comparison of the three methods on one subject
+# Numeric comparison of the three methods on one subject
 methods <- c("linear", "lin-log", "lin up/log down")
 
 results <- lapply(methods, function(m) {
@@ -238,13 +229,10 @@ The switch point is Tmax (not whether concentrations are rising or falling), so 
 Hybrid: linear trapezoidal on the ascending phase (when $C_{i+1} \geq C_i$), log-linear on the descending phase (when $C_{i+1} < C_i$). Best of both worlds for most PK profiles.
 
 ```{r}
-# Visualise the three profiles for one subject
+# Profile with AUClast shaded
 d_plot <- d_one |>
   filter(conc > 0) |>
   arrange(time)
-
-# Illustrate the interpolated concentration between two points
-t_seq <- seq(min(d_plot$time), max(d_plot$time), length.out = 200)
 
 ggplot(d_plot, aes(x = time, y = conc)) +
   geom_line(colour = "steelblue", linewidth = 1) +
@@ -270,7 +258,7 @@ ggplot(d_plot, aes(x = time, y = conc)) +
 
 ## AUMC — area under the first moment curve
 
-The **area under the first-moment curve** (AUMC) weights concentrations by time and is used to compute MRT:
+The **area under the first-moment curve** (AUMC) weights concentrations by time and is used to compute mean residence time (MRT):
 $$\text{AUMC} = \int_0^{t} t \cdot C(t) \, dt$$
 
 | Parameter | Meaning |

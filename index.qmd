@@ -38,7 +38,7 @@ flowchart LR
 
 | Object | Purpose |
 |---|---|
-| `PKNCAconc` | Where is concentration data; how is it grouped? |
+| `PKNCAconc` | Concentration data location and grouping |
 | `PKNCAdose` | Dose amount, time, and route |
 | `PKNCAdata` | Parameters and analysis intervals |
 | `PKNCAresults` | Computed NCA parameters, units, exclusion flags |
@@ -54,7 +54,9 @@ flowchart LR
 | Half-life (λz) | ✓ | ✓ |
 | CL (true clearance) | ✓ | — (apparent: CL/F) |
 | Vz (volume) | ✓ | — (apparent: Vz/F) |
-| Bioavailability (F) | reference | ✓ |
+| Bioavailability (F) | — (serves as reference) | ✓ |
+
+For bioavailability, IV data serve as the reference against which extravascular exposure is compared.
 
 ## What's new in 0.12.2
 

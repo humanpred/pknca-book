@@ -27,7 +27,7 @@ Urine NCA characterizes how much drug is excreted in urine over time. Key parame
 
 Urine NCA requires a **separate concentration object** for urine, with the `volume` argument to `PKNCAconc()` specifying the column name that holds the urine volume collected in each interval.
 
-The key distinction from plasma NCA: urine concentrations represent **interval averages** rather than timepoint measurements. Each row covers the collection period from the previous sample to the current time.
+The key distinction from plasma NCA: urine concentrations represent **interval averages** rather than timepoint measurements. This dataset records each collection's **end** time as `time` — sufficient for amount parameters like `ae`, which only need each row to fall inside the analysis interval. PKNCA's full urine convention is `time` as the collection **start** plus a `duration` column giving the collection length; the excretion-rate section below rebuilds the data that way.
 
 ```{r}
 # Simulate urine collection for 4 subjects after a 100 mg IV bolus
@@ -39,7 +39,6 @@ urine_collections <- expand.grid(
   end_time    = c(2, 6, 12, 24)
 ) |>
   mutate(
-    start_time = c(0, 2, 6, 12)[match(end_time, c(2, 6, 12, 24))],
     # Simulated urine volume (mL) and concentration (mcg/mL)
     volume_mL  = round(runif(n(), 80, 300)),
     # Fraction excreted: ~30% in first 2h, 25% 2-6h, 20% 6-12h, 15% 12-24h
@@ -51,6 +50,8 @@ urine_collections <- expand.grid(
 
 head(urine_collections)
 ```
+
+Renal clearance needs a plasma AUC, so we also simulate matched plasma profiles.
 
 ```{r}
 # Plasma concentrations (IV bolus, same subjects)
@@ -137,6 +138,8 @@ results <- plasma_auc |>
 results
 ```
 
+`clr.pred` works identically using AUCinf.pred as the denominator.
+
 For a real IV analysis, back-extrapolate C0 instead — see the [Intravascular](intravascular.qmd) chapter; `conc = 0` at `t = 0` is used here only to keep the simulation short.
 
 ---
@@ -166,20 +169,14 @@ results |>
 If your data are structured with urine as a separate concentration object and `PKNCAconc(..., volume = "vol_col")`, PKNCA can compute `ae` directly:
 
 ```{r}
-# Structure for direct ae computation
-o_conc_ur2 <- PKNCAconc(
-  urine_collections,
-  conc ~ time | Subject,
-  volume = "volume"
-)
-
+# o_conc_urine (created above) already carries the volume column
 ur_intervals <- data.frame(
   start = 0,
   end   = 24,
   ae    = TRUE
 )
 
-o_data_ae <- PKNCAdata(o_conc_ur2, o_dose, intervals = ur_intervals)
+o_data_ae <- PKNCAdata(o_conc_urine, o_dose, intervals = ur_intervals)
 o_nca_ae  <- pk.nca(o_data_ae)
 
 as.data.frame(o_nca_ae) |>
@@ -204,7 +201,7 @@ vol_interval <- data.frame(
   volpk  = TRUE    # sum of urine volumes over the interval
 )
 
-o_nca_vol <- pk.nca(PKNCAdata(o_conc_ur2, o_dose, intervals = vol_interval))
+o_nca_vol <- pk.nca(PKNCAdata(o_conc_urine, o_dose, intervals = vol_interval))
 as.data.frame(o_nca_vol) |>
   filter(PPTESTCD %in% c("ae", "volpk")) |>
   select(Subject, PPTESTCD, PPORRES)
@@ -252,7 +249,7 @@ as.data.frame(o_nca_er) |>
 
 Dose-normalized renal clearance variants are now available in the parameter registry:
 
-| Parameter | Normalized from |
+| Parameter | Definition |
 |---|---|
 | `clr.last.dn` | `clr.last / dose` |
 | `clr.obs.dn` | `clr.obs / dose` |
@@ -261,7 +258,7 @@ Dose-normalized renal clearance variants are now available in the parameter regi
 Renal clearance divides the urine Ae by the plasma AUC — two different concentration objects — so a single `pk.nca()` call cannot compute `clr.*` directly. Compute each piece with `pk.nca()` and combine them, with `pk.calc.dn()` applying the dose normalization:
 
 ```{r}
-o_nca_ae_dn <- pk.nca(PKNCAdata(o_conc_ur2, o_dose,
+o_nca_ae_dn <- pk.nca(PKNCAdata(o_conc_urine, o_dose,
                                 intervals = data.frame(start = 0, end = 24, ae = TRUE)))
 
 clr_dn <- plasma_auc |>   # plasma pk.nca() results from the separate workflow above

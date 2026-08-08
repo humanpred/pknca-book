@@ -128,9 +128,16 @@ o_data_lasttmax <- PKNCAdata(
   intervals = ev_intervals,
   options = list(first.tmax = FALSE)
 )
+o_nca_lasttmax <- pk.nca(o_data_lasttmax)
+
+# Tmax is unchanged for every subject:
+identical(
+  as.data.frame(o_nca)          |> filter(PPTESTCD == "tmax") |> pull(PPORRES),
+  as.data.frame(o_nca_lasttmax) |> filter(PPTESTCD == "tmax") |> pull(PPORRES)
+)
 ```
 
-Tie-breaking for Tmin is controlled by the `first.tmin` option (PKNCA ≥ 0.12.2, default `TRUE` = return first occurrence).
+The option has no effect here because no Theoph subject reaches its maximum concentration at two timepoints — `first.tmax` only matters when the maximum is an exact tie. Tie-breaking for Tmin is controlled by the `first.tmin` option (PKNCA ≥ 0.12.2, default `TRUE` = return first occurrence).
 
 ### AUC variants
 
@@ -197,7 +204,20 @@ o_data_allow_tmax <- PKNCAdata(
   intervals = hl_params,
   options = list(allow.tmax.in.half.life = TRUE)
 )
+o_nca_allow_tmax <- pk.nca(o_data_allow_tmax)
+
+# Subject 8 is the only subject whose selected regression changes
+bind_rows(
+  as.data.frame(o_nca_hl)         |> mutate(version = "default (Tmax excluded)"),
+  as.data.frame(o_nca_allow_tmax) |> mutate(version = "Tmax allowed")
+) |>
+  filter(subject == "8",
+         PPTESTCD %in% c("lambda.z.n.points", "adj.r.squared", "half.life")) |>
+  select(version, PPTESTCD, PPORRES) |>
+  tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES)
 ```
+
+For the other 11 subjects the best-fitting regression already excluded Tmax, so nothing changes; subject 8's best fit (highest adjusted R²) now starts at Tmax, using one more point and shifting the half-life slightly.
 
 ### Clearance and volume (apparent)
 
@@ -223,7 +243,7 @@ as.data.frame(o_nca_tlag) |>
   arrange(subject)
 ```
 
-> For the Theoph dataset tlag is 0 for all subjects (no lag). It becomes non-zero when the concentration-time profile shows a flat period after dosing before rising.
+> For the Theoph dataset, tlag is 0 for all subjects (no lag). It becomes non-zero when the concentration-time profile shows a flat period after dosing before rising.
 
 ### Bioavailability (f)
 
@@ -378,7 +398,18 @@ o_data_per_interval <- PKNCAdata(
   intervals = d_intervals_impute,
   impute = "impute"   # tells PKNCA to look in the intervals column named "impute"
 )
+o_nca_per_interval <- pk.nca(o_data_per_interval)
+
+# Subject 1's missing predose is imputed by the interval row — same result as above
+bind_rows(
+  as.data.frame(o_nca_imputed)      |> mutate(version = "global impute"),
+  as.data.frame(o_nca_per_interval) |> mutate(version = "per-interval impute")
+) |>
+  filter(subject == "1", PPTESTCD == "auclast") |>
+  select(version, PPTESTCD, PPORRES)
 ```
+
+With a single interval row the per-interval column reproduces the global setting; with several rows, each row's `impute` value applies only to its own calculation window.
 
 ---
 
@@ -460,9 +491,12 @@ o_conc_excl <- PKNCAconc(d_conc_excl, conc ~ time | subject, exclude = "exclude_
 
 o_data_excl <- PKNCAdata(o_conc_excl, o_dose, intervals = ev_intervals)
 o_nca_excl  <- pk.nca(o_data_excl)
+
+# The flagged row stays in the data with its reason
+as.data.frame(o_conc_excl) |> filter(!is.na(exclude_reason))
 ```
 
-Excluded points appear flagged in `as.data.frame()` output, preserving audit trail.
+The excluded point is dropped from every parameter calculation, while the flagged row remains in the data with its reason (shown above), preserving the audit trail.
 
 ---
 
@@ -475,16 +509,39 @@ The default is `list(first = "keep", middle = "drop", last = "keep")`:
 - `middle` — BLQs sandwiched between non-BLQ values (dropped by default)
 - `last` — BLQs after the last non-BLQ concentration (keep by default)
 
-You can override globally, per-position (`first`/`middle`/`last`), or relative to Tmax (`before.tmax`/`after.tmax`); the action can be `"keep"`, `"drop"`, or a numeric replacement value:
+In Theoph the only BLQ values are the predose zeros, which the default rule keeps, so overriding `conc.blq` changes little on this dataset. To see the mechanism, simulate a mid-profile BLQ — subject 3's 3.62 h sample set to 0 — and compare the default against a global `"keep"`:
 
 ```{r}
-# Global: treat all BLQ as 0
+d_conc_blq <- d_conc |>
+  mutate(conc = ifelse(subject == "3" & time == 3.62, 0, conc))
+o_conc_blq <- PKNCAconc(d_conc_blq, conc ~ time | subject)
+
+auclast_interval <- data.frame(start = 0, end = Inf, auclast = TRUE)
+
+# Default: the middle BLQ is dropped and the AUC interpolates across the gap
+o_nca_blq_default <- pk.nca(PKNCAdata(o_conc_blq, o_dose, intervals = auclast_interval))
+
+# Global override: keep all BLQ values as 0
 o_data_blq_keep <- PKNCAdata(
-  o_conc, o_dose,
-  intervals = ev_intervals,
+  o_conc_blq, o_dose,
+  intervals = auclast_interval,
   options = list(conc.blq = "keep")
 )
+o_nca_blq_keep <- pk.nca(o_data_blq_keep)
 
+bind_rows(
+  as.data.frame(o_nca_blq_default) |> mutate(version = "default (drop middle BLQ)"),
+  as.data.frame(o_nca_blq_keep)    |> mutate(version = "conc.blq = \"keep\"")
+) |>
+  filter(subject == "3", PPTESTCD == "auclast") |>
+  select(version, PPTESTCD, PPORRES)
+```
+
+Keeping the mid-profile 0 pulls the concentration curve down to 0 at 3.62 h and cuts a wedge out of subject 3's AUC; the default treats an isolated BLQ between measurable concentrations as an assay artifact and interpolates across it.
+
+Overrides can also be per-position (`first`/`middle`/`last`) or relative to Tmax (`before.tmax`/`after.tmax`), and the action can be `"keep"`, `"drop"`, or a numeric replacement value. These work the same way — build the object with the option and run `pk.nca()`:
+
+```{r}
 # Global: remove all BLQ values
 o_data_blq_drop <- PKNCAdata(
   o_conc, o_dose,
@@ -504,6 +561,8 @@ o_data_blq <- PKNCAdata(
   )
 )
 ```
+
+On Theoph the per-phase rule reproduces the default results (the predose zeros sit before Tmax and are kept), while the global `"drop"` is a trap for intervals starting at the dose time: it removes the predose zeros too, so AUCs that start at 0 begin before the first remaining measurement and return `NA` with a warning.
 
 ---
 

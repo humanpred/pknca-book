@@ -7,13 +7,6 @@ library(PKNCA)
 library(dplyr)
 library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
-
-d_conc <- as.data.frame(Theoph) |> rename(time = Time, subject = Subject)
-d_dose <- Theoph |> as.data.frame() |>
-  group_by(Subject) |>
-  summarise(dose = Dose[1] * Wt[1], .groups = "drop") |>
-  rename(subject = Subject) |>
-  mutate(time = 0)
 ```
 
 ## What superposition does
@@ -32,6 +25,19 @@ flowchart LR
 ---
 
 ## Basic superposition
+
+`Theoph` records dose in mg/kg; converting it to each subject's total dose in mg gives the value that `dose.input` expects:
+
+```{r}
+d_conc <- as.data.frame(Theoph) |> rename(time = Time, subject = Subject)
+
+# Theoph dose is mg/kg — multiply by body weight for the total mg dose
+d_dose <- Theoph |> as.data.frame() |>
+  group_by(Subject) |>
+  summarise(dose = Dose[1] * Wt[1], .groups = "drop") |>
+  rename(subject = Subject) |>
+  mutate(time = 0)
+```
 
 ```{r}
 # Use Theoph subject 1 as single-dose reference
@@ -118,6 +124,8 @@ bind_rows(
 
 ## Changing the dosing interval (τ)
 
+Shortening τ to 8 h raises troughs and reduces peak-to-trough fluctuation:
+
 ```{r}
 ss_8h <- superposition(
   o_conc_1,
@@ -140,7 +148,7 @@ ggplot(ss_8h, aes(x = time, y = conc)) +
 
 ## Extracting accumulation ratio
 
-The **accumulation ratio (Rac)** is Cmax at steady state divided by Cmax after the first dose:
+One common definition of the **accumulation ratio (Rac)** is Cmax at steady state divided by Cmax after the first dose (an AUC-based Rac, AUCτ,ss / AUCτ,first, is equally common):
 
 ```{r}
 cmax_sd <- max(subj1$conc, na.rm = TRUE)
