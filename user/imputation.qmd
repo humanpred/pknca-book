@@ -51,20 +51,14 @@ d_conc_no0 |>
 
 ---
 
-## The three built-in strategies
+## The three built-in start-of-interval strategies
 
-Verified with `args()`:
+You can inspect the signatures with `args()`:
 
-```r
+```{r}
 args(PKNCA_impute_method_start_conc0)
-# function(conc, time, start = 0, ..., options = list())
-
 args(PKNCA_impute_method_start_predose)
-# function(conc, time, start, end, conc.group, time.group, ...,
-#          max_shift = NA_real_, options = list())
-
 args(PKNCA_impute_method_start_cmin)
-# function(conc, time, start, end, ..., options = list())
 ```
 
 | Name | String to use | What it does |
@@ -72,6 +66,8 @@ args(PKNCA_impute_method_start_cmin)
 | `PKNCA_impute_method_start_conc0` | `"start_conc0"` | Inserts a concentration of 0 at the interval start time |
 | `PKNCA_impute_method_start_predose` | `"start_predose"` | Uses the last observed concentration before the interval start |
 | `PKNCA_impute_method_start_cmin` | `"start_cmin"` | Uses the minimum concentration observed within the interval |
+
+All three built-in methods impute a concentration at the **start** of the interval; newer development versions of PKNCA also provide `PKNCA_impute_method_end_conc_drop`, which instead drops a next-dose sample observed exactly at the interval end (not shown here, as it is not yet in a released version).
 
 ### `start_conc0` — zero concentration at interval start
 
@@ -164,9 +160,11 @@ res_global <- pk.nca(o_data_global)
 df_global  <- as.data.frame(res_global)
 
 # auclast is populated for all subjects despite the missing t = 0
+# (arrange by subject number — Theoph's factor levels are not in numeric order)
 df_global |>
   filter(PPTESTCD == "auclast") |>
   select(Subject, PPORRES) |>
+  arrange(as.numeric(as.character(Subject))) |>
   head(6)
 ```
 
@@ -197,8 +195,9 @@ as.data.frame(res_chain) |>
 ```
 
 For subject 1 the chained result matches the global `start_conc0` run in the
-previous section: `start_predose` found no pre-dose sample to carry forward,
-so the fallback inserted the zero.
+previous section — the same auclast (92.3) appears in the first row of both
+displays: `start_predose` found no pre-dose sample to carry forward, so the
+fallback inserted the zero.
 
 ---
 
@@ -235,7 +234,7 @@ res_per <- pk.nca(o_data_per_interval)
 as.data.frame(res_per) |>
   filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "aucinf.obs", "cmax")) |>
-  select(Subject, PPTESTCD, PPORRES)
+  select(Subject, start, end, PPTESTCD, PPORRES)  # start/end distinguish the two cmax rows
 ```
 
 ---
@@ -318,8 +317,8 @@ The vignette's [advanced section](https://humanpred.github.io/pknca/articles/v08
 ## Summary
 
 - Imputation is triggered when no observation exists at the interval start time.
-- The three built-in methods are referenced by their suffix strings:
-  `"start_conc0"`, `"start_predose"`, `"start_cmin"`.
+- The three built-in start-of-interval methods are referenced by their suffix
+  strings: `"start_conc0"`, `"start_predose"`, `"start_cmin"`.
 - Global imputation: `PKNCAdata(..., impute = "start_conc0")`.
 - Chained methods: `impute = "start_predose,start_conc0"`.
 - Per-interval: add an `impute` column to the intervals data frame and pass
@@ -331,5 +330,5 @@ The vignette's [advanced section](https://humanpred.github.io/pknca/articles/v08
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA_impute_method_start_conc0()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method_start_conc0.html) · [PKNCA_impute_method_start_predose()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method_start_predose.html) · [PKNCA_impute_method_start_cmin()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method_start_cmin.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA_impute_method_start_conc0()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [PKNCA_impute_method_start_predose()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [PKNCA_impute_method_start_cmin()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html)
 :::

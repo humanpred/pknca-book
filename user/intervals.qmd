@@ -5,7 +5,6 @@ title: "Interval Selection and Parameter Catalog"
 ```{r setup, include=FALSE}
 library(PKNCA)
 library(dplyr)
-library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
@@ -22,7 +21,7 @@ An interval specification is a plain R `data.frame` with one row per calculation
 | `start` | numeric | Start of the calculation window (same units as time) |
 | `end`   | numeric | End of the calculation window; use `Inf` for open-ended windows |
 
-Every remaining column is normally a **parameter flag**: its name must match a known PKNCA parameter name and its value must be `TRUE` (calculate) or `FALSE` (skip). Columns set to `FALSE` are simply ignored, so you only need to list the parameters you actually want. The exceptions are grouping columns used for matching (see the group-matching section below), an `impute` column (see the Imputation chapter), and columns carried through to the results via the `keep_interval_cols` option.
+Every remaining column is normally a **parameter flag**: its name must match a known PKNCA parameter name and its value must be `TRUE` (calculate) or `FALSE` (skip). Columns set to `FALSE` are simply ignored, so you only need to list the parameters you actually want. The exceptions are grouping columns used for matching (see the group-matching section below), an `impute` column (see the [Concentration Imputation chapter](imputation.qmd)), and columns carried through to the results via the `keep_interval_cols` option.
 
 ```{r interval-structure}
 # A minimal interval: AUClast over the first 24 hours
@@ -67,6 +66,7 @@ subject_intervals <- data.frame(
 )
 
 # Intervals without Subject — this row applies to ALL subjects (default interval)
+# Shown for illustration; the run below uses subject_intervals only
 default_interval <- data.frame(
   start   = 0,
   end     = 24,
@@ -74,7 +74,7 @@ default_interval <- data.frame(
 )
 ```
 
-If an interval row has no group columns, it is a **default interval** and is applied to every group present in the concentration data that does not have a more specific match. This is useful when the same calculation windows apply to all subjects and analytes.
+If an interval row has no group columns, it is a **default interval** and is applied to every group present in the concentration data. This is useful when the same calculation windows apply to all subjects and analytes.
 
 Running the subject-specific intervals shows the matching in action. To keep the output short, restrict the concentration data to subjects 1–3. Subject 3 has no matching interval row, so PKNCA warns about it and returns results only for subjects 1 and 2 (no dose object is needed here because `auclast` is dose-independent):
 
@@ -157,7 +157,7 @@ When a concentration object carries duration information, PKNCA selects samples 
 
 ```{r duration-concept}
 # Urine collected 0-4, 4-8, and 8-24 h after a 100 mg oral dose
-urine_conc <- data.frame(
+d_urine_conc <- data.frame(
   Subject  = 1,
   time     = c(0, 4, 8),        # collection start times (h)
   duration = c(4, 4, 16),       # collection lengths (h)
@@ -165,7 +165,7 @@ urine_conc <- data.frame(
   volume   = c(0.5, 0.6, 1.2)   # collected urine volume (L)
 )
 o_urine_conc <- PKNCAconc(
-  urine_conc, conc ~ time | Subject,
+  d_urine_conc, conc ~ time | Subject,
   duration = "duration", volume = "volume"
 )
 o_urine_dose <- PKNCAdose(
@@ -181,7 +181,7 @@ as.data.frame(o_urine)
 
 `ae` (amount excreted) is the sum of concentration × volume over the collections in the interval: $20 \times 0.5 + 15 \times 0.6 + 5 \times 1.2 = 25$ mg of the 100 mg dose.
 
-For IV infusions, `setDuration()` on the dose object sets the infusion duration, and `ceoi` (concentration at end of infusion) becomes calculable within an interval whose `end` matches the infusion end time.
+For IV infusions, `setDuration()` on the dose object sets the infusion duration, and `ceoi` (concentration at end of infusion) becomes calculable within an interval when a sample was drawn at the end-of-infusion time within the interval.
 
 ---
 
@@ -216,7 +216,7 @@ Parameters fall into broad families:
 
 - **AUC / AUMC** — `auclast`, `aucall`, `aucinf.obs`, `aucinf.pred`, `aumclast`, and interval-restricted `aucint.*` variants
 - **Concentration** — `cmax`, `cmin`, `ctrough`, `clast.obs`, `clast.pred`, `c0`, `cstart`, `ceoi`
-- **Time** — `tmax`, `tlast`, `tfirst`, `tlag`
+- **Time** — `tmax`, `tmin`, `tlast`, `tfirst`, `tlag`
 - **Clearance / Volume** — `cl.obs`, `cl.pred`, `vz.obs`, `vz.pred`, `vss.obs`, `vss.iv.obs`, renal `clr.*`
 - **Elimination** — `half.life`, `lambda.z`, `lambda.z.n.points`, `span.ratio`, `r.squared`, `adj.r.squared`
 - **Excretion** — `ae`, `fe`
@@ -244,7 +244,7 @@ This is useful when you plan to modify or exclude a parameter and want to know w
 
 ## Validating custom intervals with `check.interval.specification()`
 
-Before passing intervals to `PKNCAdata()`, you can validate them with `check.interval.specification()`. It verifies that all column names are recognized parameters, that `start < end`, and that logical values are used correctly.
+Before passing intervals to `PKNCAdata()`, you can validate them with `check.interval.specification()`. It checks that `start` and `end` are present and valid (`start < end`, non-missing start), that known parameter columns hold valid values, and it warns when a row requests no parameters. Unknown extra columns pass through untouched (deliberately, so grouping columns survive).
 
 ```{r check-intervals}
 # A valid interval
@@ -268,7 +268,7 @@ bad_int <- data.frame(
 check.interval.specification(bad_int)
 ```
 
-`check.interval.specification()` returns the interval data frame invisibly on success, making it safe to use inline before passing to `PKNCAdata()`:
+`check.interval.specification()` returns the checked, column-completed specification — every registered parameter column filled in with its default — so it can be used inline before passing to `PKNCAdata()`:
 
 ```{r check-inline}
 o_conc <- PKNCAconc(Theoph, conc ~ Time | Subject)

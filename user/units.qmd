@@ -52,7 +52,7 @@ The unit-related arguments are:
 
 ### Arguments in `PKNCAdose()`
 
-- `doseu` — dose unit (e.g. `"mg"`)
+- `doseu` — dose unit (e.g. `"mg"`); like the `PKNCAconc()` unit arguments, it also accepts the name of a column in the dose data holding per-row unit strings
 - `doseu_pref` — preferred output unit for dose (triggers conversion)
 
 ### Example: units as string literals
@@ -70,7 +70,7 @@ o_dose <- PKNCAdose(d_dose, amt ~ Time | Subject,
                     doseu = "mg")
 ```
 
-### Example: units from a data column
+### Example: units from a data column (≥ 0.12.0)
 
 ```{r}
 Theoph_units <- Theoph_df |>
@@ -100,7 +100,7 @@ o_dose_u <- PKNCAdose(
     rename(subject=Subject) |>
     mutate(time = 0),
   dose ~ time | subject, route = "extravascular",
-  doseu = "mg", timeu = "h"
+  doseu = "mg"
 )
 o_data_u <- PKNCAdata(o_conc_u, o_dose_u)
 
@@ -171,7 +171,7 @@ stopifnot("PPORRESU" %in% names(df))  # unit column present on every row
 
 df |>
   filter(Subject == "1",
-                PPTESTCD %in% c("auclast", "cmax", "tmax", "cl.obs")) |>
+                PPTESTCD %in% c("auclast", "cmax", "tmax")) |>
   select(PPTESTCD, PPORRES, PPORRESU)
 ```
 
@@ -263,7 +263,7 @@ as.data.frame(res_custom) |>
 
 ---
 
-### Allowing partial units (≥ 0.12.0)
+## Allowing partial units (≥ 0.12.0)
 
 `pknca_units_table()` always returns a complete table, but a hand-edited or
 reused units table can end up missing entries for some of the parameters an

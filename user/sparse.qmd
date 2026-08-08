@@ -288,5 +288,5 @@ as.data.frame(o_nca_sparse_full) |>
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [sparse_mean()](https://humanpred.github.io/pknca/reference/sparse_mean.html) · [sparse_auc_weight_linear()](https://humanpred.github.io/pknca/reference/sparse_auc_weight_linear.html)
 :::

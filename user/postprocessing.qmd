@@ -13,14 +13,14 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 After `pk.nca()` you may need to:
 
-1. **Exclude** specific results that failed QC (poor half-life fit, protocol deviation)
-2. **Normalize** parameters by dose (built-in `.dn` variants)
-3. **Summarize** with custom statistics, respecting exclusions
-4. **Extract** results as a tidy data frame for further analysis
+1. **Extract** results as a tidy data frame for further analysis
+2. **Exclude** specific results that failed QC (poor half-life fit, protocol deviation)
+3. **Normalize** parameters by dose (built-in `.dn` variants)
+4. **Summarize** with custom statistics, respecting exclusions
 5. **Report** with the `business.*` summary helper functions
 6. **Inspect** which concentrations each λz regression used
 
-All of this operates on the `PKNCAresults` object without rerunning the analysis. The package's own [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html) walks the same workflow.
+Most of this operates on the `PKNCAresults` object without rerunning the analysis (requesting `.dn` parameters is the exception — they are computed by `pk.nca()`). The package's own [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html) walks the same workflow.
 
 ---
 
@@ -28,7 +28,7 @@ All of this operates on the `PKNCAresults` object without rerunning the analysis
 
 Every section below post-processes the same `PKNCAresults` object, built from
 the Theoph dataset. The interval requests the headline parameters plus the
-regression-quality metrics that the exclusion demos rely on (`span.ratio`,
+regression- and extrapolation-quality metrics that the exclusion demos rely on (`span.ratio`,
 `adj.r.squared`, `aucpext.obs`):
 
 ```{r}
@@ -108,7 +108,7 @@ PKNCA provides ready-made rule functions to pass to `exclude(FUN=...)`. Unlike a
 | `exclude_nca_tmax_0()` | Tmax at or before 0 (shortcut for `exclude_nca_tmax_early(0)`) |
 | `exclude_nca_tmax_early(tmax_early = 0)` | Tmax at or before a threshold time (`tmax_early`, default 0) |
 | `exclude_nca_count_conc_measured(min_count, exclude_param_pattern = ...)` | fewer than `min_count` measured concentrations; excludes the AUC-family parameters matching `exclude_param_pattern` |
-| `exclude_nca_by_param(parameter, min_thr = NULL, max_thr = NULL, affected_parameters = parameter)` | the value of `parameter` falls outside `[min_thr, max_thr]`; excludes `affected_parameters` (default: `parameter` itself) |
+| `exclude_nca_by_param(parameter, min_thr = NULL, max_thr = NULL, affected_parameters = parameter)` (≥ 0.12.2) | the value of `parameter` falls outside `[min_thr, max_thr]`; excludes `affected_parameters` (default: `parameter` itself) |
 
 ```{r}
 # Exclude half-lives where span ratio < 2
@@ -232,7 +232,7 @@ df_bw_norm |>
 
 > `normalize()` returns **only** the normalized rows, under new parameter names — `auclast` becomes `auclast.bw`, `cmax` becomes `cmax.bw`. To keep both original and normalized values, bind the normalized rows onto the original results: `bind_rows(df_results, df_bw_norm)`.
 
-`normalize_by_col()` (≥ 0.12.2) is the low-level variant that pulls normalization values from a column already present in the `PKNCAconc` data frame, rather than from a separate table.
+`normalize_by_col()` (≥ 0.12.2) is the low-level internal helper that pulls normalization values from a column already present in the `PKNCAconc` data frame, rather than from a separate table.
 
 ---
 
@@ -285,7 +285,7 @@ PKNCA.set.summary(
 
 ## Business summary helpers
 
-PKNCA exports the full set of `business.*` summary functions. These are used internally by `PKNCA.set.summary()` and are also available directly for custom reporting pipelines.
+PKNCA exports the full set of `business.*` summary functions. These are the defaults `summary()` uses for most parameters, and they are also available directly for custom reporting pipelines.
 
 | Function | Returns | Description |
 |---|---|---|
@@ -370,5 +370,5 @@ Imputation is a pre-calculation step, not a post-processing step. It is specifie
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_*()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [exclude_nca_by_param()](https://humanpred.github.io/pknca/reference/exclude_nca_by_param.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [normalize()](https://humanpred.github.io/pknca/reference/normalize.html) · [normalize_by_col()](https://humanpred.github.io/pknca/reference/normalize_by_col.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [business.*()](https://humanpred.github.io/pknca/reference/business.mean.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_*()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [exclude_nca_by_param()](https://humanpred.github.io/pknca/reference/exclude_nca_by_param.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [normalize()](https://humanpred.github.io/pknca/reference/normalize.html) · [normalize_by_col()](https://humanpred.github.io/pknca/reference/normalize_by_col.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [business.*()](https://humanpred.github.io/pknca/reference/business.mean.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

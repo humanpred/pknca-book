@@ -92,13 +92,9 @@ o_dose <- PKNCAdose(d_dose, dose ~ time | Subject, route = "intravascular")
 
 ---
 
-## Computing ae, fe, and renal clearance
+## Separate plasma + urine workflow
 
 Renal clearance combines the urine amount excreted (Ae) with the plasma AUC. Combined plasma+urine analysis in a single `PKNCAdata` object is limited; the recommended workflow is to run plasma NCA and urine NCA separately and join the results.
-
----
-
-## Separate plasma + urine workflow
 
 This separate-workflow approach works reliably:
 
@@ -158,7 +154,7 @@ results |>
 
 **Interpretation guide:**
 
-- `fe` near 0.30 means ~30% of dose is renally excreted unchanged. The remainder is metabolized or excreted by other routes.
+- `fe` near 0.9 means ~90% of the dose is renally excreted unchanged — renal excretion dominates elimination for this simulated drug. A low `fe` would instead point to metabolism or other elimination routes.
 - `clr.obs` ≈ GFR (120 mL/min = 7.2 L/h) suggests renal filtration; higher values indicate active secretion.
 - `clr.last` > `clr.obs` because the same Ae is divided by the smaller AUClast; the gap grows when sampling misses late elimination.
 
@@ -184,6 +180,8 @@ as.data.frame(o_nca_ae) |>
   select(Subject, PPORRES) |>
   arrange(Subject)
 ```
+
+Note the units: `ae` here is in mcg (urine concentration in mcg/mL × volume in mL), so ~90,000 mcg matches the ~90 mg computed manually above.
 
 ---
 
@@ -245,7 +243,7 @@ as.data.frame(o_nca_er) |>
   select(Subject, PPTESTCD, PPORRES)
 ```
 
-### Dose-normalized renal clearance (≥ 0.12.2)
+### Dose-normalized renal clearance
 
 Dose-normalized renal clearance variants are now available in the parameter registry:
 
@@ -283,5 +281,5 @@ clr_dn
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.dn()](https://humanpred.github.io/pknca/reference/pk.calc.dn.html)
 :::

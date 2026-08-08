@@ -23,7 +23,7 @@ Columns: `Subject`, `Wt` (body weight, kg), `Dose` (mg/kg), `Time` (h), `conc` (
 ```{r}
 # Prepare concentration data
 d_conc <- as.data.frame(Theoph) |>
-  rename(time = Time, subject = Subject, conc = conc)
+  rename(time = Time, subject = Subject)
 
 # Prepare dose data: convert mg/kg to mg per subject
 d_dose <- Theoph |>
@@ -119,7 +119,7 @@ as.data.frame(o_nca_lm) |>
   arrange(subject, PPTESTCD)
 ```
 
-**When there are multiple peaks** (fed state, enterohepatic recirculation), the default is to return the first Tmax. Control this with `first.tmax`:
+**When the maximum occurs at more than one timepoint** (an exact tie), the default is to return the first Tmax. Control this with `first.tmax`:
 
 ```{r}
 # Use the last Tmax when there are ties
@@ -164,7 +164,7 @@ o_data_auc <- PKNCAdata(o_conc, o_dose, intervals = auc_params)
 o_nca_auc  <- pk.nca(o_data_auc)
 
 as.data.frame(o_nca_auc) |>
-  filter(PPTESTCD %in% c("auclast", "aucinf.obs", "aucpext.obs")) |>
+  filter(PPTESTCD %in% c("auclast", "aucinf.obs", "aucinf.pred", "aucpext.obs")) |>
   select(subject, PPTESTCD, PPORRES) |>
   tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES) |>
   arrange(subject)
@@ -269,7 +269,7 @@ as.data.frame(o_nca_vss) |>
   arrange(subject, PPTESTCD)
 ```
 
-### MRT variants
+### Mean residence time (MRT)
 
 | Parameter | Meaning |
 |---|---|
@@ -291,7 +291,9 @@ as.data.frame(o_nca_mrt_ev) |>
   arrange(subject, PPTESTCD)
 ```
 
-### Effective half-life and kel
+### Effective half-life and elimination rate constant
+
+The effective half-life is ln(2) × MRT — a rate that reflects overall persistence rather than the terminal slope. The related `kel.*` parameters are 1/MRT, **not** λz; the two differ whenever distribution or absorption contributes materially to MRT.
 
 All extravascular effective half-life and elimination rate constant variants:
 
@@ -347,7 +349,7 @@ as.data.frame(o_nca_tau) |> select(subject, PPTESTCD, PPORRES)
 
 ## Imputation of missing predose concentrations
 
-In some studies, the predose sample is missing or was not collected. PKNCA can impute a time-0 concentration before calculations. Full method descriptions and per-interval examples are in the [Data Imputation vignette](https://humanpred.github.io/pknca/articles/v08-data-imputation.html).
+In some studies, the predose sample is missing or was not collected. PKNCA can impute a time-0 concentration before calculations. Full method descriptions and per-interval examples are in the [Concentration Imputation chapter](imputation.qmd) and the [Data Imputation vignette](https://humanpred.github.io/pknca/articles/v08-data-imputation.html).
 
 Available built-in methods (comma-separate to chain them):
 
@@ -489,8 +491,6 @@ d_conc_excl <- d_conc |>
 
 o_conc_excl <- PKNCAconc(d_conc_excl, conc ~ time | subject, exclude = "exclude_reason")
 
-o_data_excl <- PKNCAdata(o_conc_excl, o_dose, intervals = ev_intervals)
-o_nca_excl  <- pk.nca(o_data_excl)
 
 # The flagged row stays in the data with its reason
 as.data.frame(o_conc_excl) |> filter(!is.na(exclude_reason))
@@ -505,7 +505,7 @@ The excluded point is dropped from every parameter calculation, while the flagge
 PKNCA's `conc.blq` option controls how BLQ values (typically entered as 0) are treated:
 
 The default is `list(first = "keep", middle = "drop", last = "keep")`:
-- `first` — BLQs before the first non-BLQ concentration (keep, often a pre-dose zero)
+- `first` — BLQs before the first non-BLQ concentration (keep, often a predose zero)
 - `middle` — BLQs sandwiched between non-BLQ values (dropped by default)
 - `last` — BLQs after the last non-BLQ concentration (keep by default)
 
@@ -539,7 +539,7 @@ bind_rows(
 
 Keeping the mid-profile 0 pulls the concentration curve down to 0 at 3.62 h and cuts a wedge out of subject 3's AUC; the default treats an isolated BLQ between measurable concentrations as an assay artifact and interpolates across it.
 
-Overrides can also be per-position (`first`/`middle`/`last`) or relative to Tmax (`before.tmax`/`after.tmax`), and the action can be `"keep"`, `"drop"`, or a numeric replacement value. These work the same way — build the object with the option and run `pk.nca()`:
+Overrides can also be per-position (`first`/`middle`/`last`) or relative to Tmax (`before.tmax`/`after.tmax`), and the action can be `"keep"`, `"drop"`, or a numeric replacement value. The objects are built the same way; running them on this data gives the results described below:
 
 ```{r}
 # Global: remove all BLQ values
@@ -564,7 +564,7 @@ o_data_blq <- PKNCAdata(
 
 On Theoph the per-phase rule reproduces the default results (the predose zeros sit before Tmax and are kept), while the global `"drop"` is a trap for intervals starting at the dose time: it removes the predose zeros too, so AUCs that start at 0 begin before the first remaining measurement and return `NA` with a warning.
 
-To use BLQ observations in half-life estimation rather than dropping them, see [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html).
+To use BLQ observations in half-life estimation rather than dropping them, see [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html) (≥ 0.12.2).
 
 ---
 
@@ -669,5 +669,5 @@ sort(names(interval_cols)[names(interval_cols) %in% ev_relevant])
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.f()](https://humanpred.github.io/pknca/reference/pk.calc.f.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.f()](https://humanpred.github.io/pknca/reference/pk.calc.f.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA_impute_method_start_*()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html)
 :::

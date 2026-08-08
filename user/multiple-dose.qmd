@@ -11,7 +11,7 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 ## Multiple-dose NCA concepts
 
-At steady state, the dosing interval τ (tau) is the key unit of analysis. Instead of analyzing from 0 to ∞, you analyze within one dosing interval [0, τ]. Two companion chapters complete the steady-state picture: [Superposition](superposition.qmd) predicts steady-state profiles (and accumulation ratios) from single-dose data, and [Time to Steady State](tss.qmd) estimates when steady state is reached. Additional parameters describe how concentrations fluctuate over the interval.
+At steady state, the dosing interval τ (tau) is the key unit of analysis. Instead of analyzing from 0 to ∞, you analyze within one dosing interval [0, τ]. Additional parameters describe how concentrations fluctuate over the interval. Two companion chapters complete the steady-state picture: [Superposition](superposition.qmd) predicts steady-state profiles (and accumulation ratios) from single-dose data, and [Time to Steady State](tss.qmd) estimates when steady state is reached.
 
 | Term | Meaning |
 |---|---|
@@ -230,7 +230,7 @@ dose_times <- c(0, 12, 24, 36, 48, 60)
 find.tau(dose_times)
 ```
 
-Use the result to construct intervals programmatically:
+Detect tau from the two-occasion dataset above:
 
 ```{r}
 # find.tau() expects one subject's dose times — filter before calling

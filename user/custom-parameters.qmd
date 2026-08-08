@@ -184,8 +184,8 @@ add.interval.col(
   FUN         = "pk.calc.auc.early",
   values      = c(FALSE, TRUE),
   unit_type   = "auc",
-  pretty_name = "AUC 0-4h",
-  desc        = "AUC from 0 to 4 h",
+  pretty_name = "AUC to last sample <= 4h",
+  desc        = "AUC to the last sample at or before 4 h",
   depends     = NULL,
   formalsmap  = list(conc = "conc", time = "time")
 )

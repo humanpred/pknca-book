@@ -46,7 +46,7 @@ actual_dose <- d_dose |> filter(subject == "1") |> pull(dose)
 
 o_conc_1 <- PKNCAconc(subj1, conc ~ time | subject)
 
-# Predict steady-state profile with τ = 24 h, show 3 dosing intervals
+# Profile during the dosing interval after the 3rd dose (τ = 24 h)
 ss_profile <- superposition(
   o_conc_1,
   tau         = 24,           # dosing interval (h)

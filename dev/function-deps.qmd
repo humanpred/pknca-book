@@ -35,7 +35,7 @@ categorize <- function(name) {
     grepl("^lambda|half\\.life|r\\.squared", name) ~ "Half-life / λz",
     grepl("^cl\\.|^vz\\.|^vss", name) ~ "CL / Volume",
     grepl("^mrt",       name) ~ "MRT",
-    grepl("^c(max|min|0|last|first)|^t(max|min|last|first|lag)|clast", name) ~ "Cmax / Tmax",
+    grepl("^c(max|min|0|last|first)|^t(max|min|last|first|lag)|^clast", name) ~ "Cmax / Tmax",
     grepl("^f$|bioavail|^ae|^fe|^clr|^vd",  name) ~ "Bioavailability / Renal",
     grepl("^tss",       name) ~ "Steady-state",
     TRUE ~ "Other"
@@ -115,7 +115,7 @@ knitr::kable(dep_table, col.names = c("Parameter", "Depends on"))
 
 Every interval parameter is computed by a function registered alongside it — usually named `pk.calc.*()` — and the registry entry returned by `get.interval.cols()` records that function name in its `$FUN` field, together with the parameter's unit type and description. Where `$FUN` is `NA`, the parameter has no dedicated function: it is either produced as part of another function's output (for example, `r.squared` and `lambda.z.time.first` are returned by the same half-life fit that produces `half.life`) or it is an interval boundary (`start`, `end`).
 
-The table below is the complete index of the calculation API: every registered parameter, the function that computes it, its unit type, and its description.
+The table below is the complete index of the calculation API: every registered parameter, the function that computes it, its unit type, and its description. To add your own parameter to this registry, see the [Writing Custom Parameters chapter](../user/custom-parameters.qmd) and the vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
 
 ```{r fun-map}
 cols <- get.interval.cols()

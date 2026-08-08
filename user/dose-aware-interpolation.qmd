@@ -234,5 +234,5 @@ The table is abridged: `interp.extrap.conc.dose()` also accepts `conc.blq` and `
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html)
+**pkgdown reference:** [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [pk.calc.c0()](https://humanpred.github.io/pknca/reference/pk.calc.c0.html)
 :::

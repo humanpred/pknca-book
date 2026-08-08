@@ -27,7 +27,7 @@ open _book/index.html
 | Chapter | Topics |
 |---|---|
 | [Workflow](user/workflow.qmd) | PKNCAconc → PKNCAdose → PKNCAdata → pk.nca; all 21 options with defaults |
-| [Interval selection & parameter catalog](user/intervals.qmd) | Interval data frame structure; group matching; all 143 calculable parameters |
+| [Interval selection & parameter catalog](user/intervals.qmd) | Interval data frame structure; group matching; the full parameter catalog, rendered live from the registry |
 | [AUC types & integration methods](user/auc-methods.qmd) | auclast/aucall/aucinf; partial AUC; lin up/log down vs linear vs lin-log; aucabove; time_above; AUMC; cav.int |
 | [Half-life & terminal phase](user/halflife.qmd) | Curve stripping; adj.r.squared.factor; quality filters; Tobit regression; lambda.z.corrxy |
 | [Extravascular (oral/SC)](user/extravascular.qmd) | BLQ handling; imputation strategies; tmin; lag time; multiple peaks |

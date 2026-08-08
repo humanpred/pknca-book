@@ -20,7 +20,7 @@ d_dose <- PKNCAdose(
   Dose ~ Time | Subject
 )
 d_data <- PKNCAdata(d_conc, d_dose)
-suppressMessages(o_nca <- pk.nca(d_data))
+o_nca <- pk.nca(d_data)
 ```
 
 ---
@@ -140,13 +140,13 @@ df_excl |> filter(!is.na(exclude)) |> select(Subject, PPTESTCD, PPORRES, exclude
 
 ## Summary table for reports
 
-`summary(o_nca)` returns a wide-format table suitable for clinical study reports. Each row is a parameter and each column is a summary statistic (geometric mean, CV%, range, etc.):
+`summary(o_nca)` returns a wide-format table suitable for clinical study reports. Each row is a group/interval and each parameter gets a column, with cells formatted as "point [spread]" (geometric mean [CV%] by default):
 
 ```{r summary-table}
 summary(o_nca)
 ```
 
-The summary uses the `PKNCA.set.summary()` configuration for each parameter type. You can customize which statistics are reported and their formatting by calling `PKNCA.set.summary()` before running `pk.nca()`.
+The summary uses the `PKNCA.set.summary()` configuration for each parameter type. You can customize which statistics are reported and their formatting by calling `PKNCA.set.summary()` before calling `summary()`.
 
 ---
 
@@ -166,8 +166,8 @@ analysis_options$conc.blq        # BLQ handling
 Set any non-default options at the top of the analysis script, before any data is processed:
 
 ```{r set-options, eval=FALSE}
-# Example: use log-linear trapezoid instead of linear-up/log-down
-PKNCA.options(auc.method = "lin-log")
+# Example: force the plain linear trapezoidal rule everywhere
+PKNCA.options(auc.method = "linear")
 ```
 
 For full reproducibility, record the session environment alongside the option snapshot:
@@ -193,5 +193,5 @@ Together, `PKNCA.options()`, `sessionInfo()`, and `renv` provide the three layer
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame.PKNCAresults()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame.PKNCAresults()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_*()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

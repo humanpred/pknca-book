@@ -24,7 +24,7 @@ To check whether tests were installed alongside the package:
 system.file("tests", package = "PKNCA")
 ```
 
-If this returns an empty string, the tests were not installed. Standard CRAN installs do not include tests by default; see “Installing with tests and running the suite” above for how to install them.
+If this returns an empty string, the tests were not installed. Standard CRAN installs do not include tests by default; see “Installing with tests and running the suite” below for how to install them.
 
 ---
 
@@ -160,7 +160,7 @@ d_data <- PKNCAdata(
   d_conc, d_dose,
   intervals = data.frame(start = 0, end = Inf, auclast = TRUE)
 )
-suppressMessages(o_nca <- pk.nca(d_data))
+o_nca <- pk.nca(d_data)
 
 pknca_auclast <- as.data.frame(o_nca) |>
   filter(Subject == "1", PPTESTCD == "auclast") |>
@@ -173,11 +173,9 @@ cat("Difference (manual - PKNCA):", round(manual_auclast - pknca_auclast, 6), "\
 The manual calculation above uses the **linear** trapezoidal rule throughout. PKNCA defaults to **lin up/log down** (`PKNCA.options("auc.method")` = `"lin up/log down"`), which uses log-linear integration on any descending interval — so the two values will differ for a typical PK profile with a descending phase. To make them agree exactly, set `auc.method = "linear"`:
 
 ```{r linear-match}
-suppressMessages(
-  o_nca_lin <- pk.nca(PKNCAdata(d_conc, d_dose,
-    intervals = data.frame(start = 0, end = Inf, auclast = TRUE),
-    options   = list(auc.method = "linear")))
-)
+o_nca_lin <- pk.nca(PKNCAdata(d_conc, d_dose,
+  intervals = data.frame(start = 0, end = Inf, auclast = TRUE),
+  options   = list(auc.method = "linear")))
 pknca_lin <- as.data.frame(o_nca_lin) |>
   filter(Subject == "1", PPTESTCD == "auclast") |> pull(PPORRES)
 cat("Manual (linear trap):   ", round(manual_auclast, 3), "\n")
@@ -226,5 +224,5 @@ Together, `packageVersion("PKNCA")`, `PKNCA.options()`, `sessionInfo()`, and `re
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

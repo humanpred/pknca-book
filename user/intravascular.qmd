@@ -51,14 +51,12 @@ o_conc <- PKNCAconc(d_conc, conc ~ time | Subject)
 
 o_dose <- PKNCAdose(d_dose, dose ~ time | Subject, route = "intravascular")
 
-# Indometh: no sample at t = 0 (first sample is at 0.25h).
+# Indometh: no sample at t = 0 (first sample is at 0.25 h).
 # Use impute = "start_conc0" to add conc = 0 at t = 0 so the interval can start at 0.
 # This slightly underestimates AUClast vs. true C0 back-extrapolation (see C0 section below).
-first_t <- 0  # interval starts at 0 with imputed C0 = 0
-
 # Request the core IV parameters
 iv_intervals <- data.frame(
-  start       = first_t,
+  start       = 0,
   end         = Inf,
   auclast     = TRUE,
   aucinf.obs  = TRUE,
@@ -106,7 +104,7 @@ For IV bolus, Cmax is the first measured concentration (no absorption phase). Tm
 
 ```{r}
 landmark_params <- data.frame(
-  start               = first_t,
+  start               = 0,
   end                 = Inf,
   cmax                = TRUE,
   tmax                = TRUE,
@@ -135,7 +133,7 @@ For IV bolus, the true concentration at time 0 is not directly measured (the fir
 
 ```{r}
 iv_with_c0 <- data.frame(
-  start    = first_t,
+  start    = 0,
   end      = Inf,
   c0       = TRUE,
   cmax     = TRUE,
@@ -167,7 +165,7 @@ All of these are computed with the current integration method (default **lin up/
 
 ```{r}
 auc_params <- data.frame(
-  start       = first_t,
+  start       = 0,
   end         = Inf,
   auclast     = TRUE,
   aucinf.obs  = TRUE,
@@ -192,7 +190,7 @@ as.data.frame(o_nca_auc) |>
 
 ```{r}
 hl_params <- data.frame(
-  start        = first_t,
+  start        = 0,
   end          = Inf,
   lambda.z     = TRUE,
   half.life    = TRUE,
@@ -230,7 +228,7 @@ as.data.frame(o_nca_strict) |>
   arrange(Subject, PPTESTCD)
 ```
 
-The λz point-selection algorithm and its quality criteria are detailed in the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
+The λz point-selection algorithm and its quality criteria are detailed in the [Half-life chapter](halflife.qmd) and the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
 
 **Excluding specific points from λz:**
 
@@ -276,7 +274,7 @@ For IV dosing, clearance and volume are obtained directly (no bioavailability fa
 
 ```{r}
 cl_params <- data.frame(
-  start      = first_t,
+  start      = 0,
   end        = Inf,
   cl.obs     = TRUE,
   cl.pred    = TRUE,
@@ -317,7 +315,7 @@ The IV-corrected variants (`mrt.iv.*`) subtract half the infusion duration from 
 
 ```{r}
 mrt_params <- data.frame(
-  start       = first_t,
+  start       = 0,
   end         = Inf,
   mrt.iv.last = TRUE,
   mrt.iv.obs  = TRUE,
@@ -349,6 +347,7 @@ All variants:
 | `thalf.eff.iv.last` | ln(2) × MRT | `mrt.iv.last` |
 | `thalf.eff.iv.obs` | ln(2) × MRT | `mrt.iv.obs` |
 | `thalf.eff.iv.pred` | ln(2) × MRT | `mrt.iv.pred` |
+| `thalf.eff.pred` | ln(2) × MRT | `mrt.pred` |
 | `thalf.eff.last` | ln(2) × MRT | `mrt.last` |
 | `thalf.eff.obs` | ln(2) × MRT | `mrt.obs` |
 | `kel.obs` | 1 / MRT | `mrt.obs` |
@@ -360,11 +359,12 @@ All variants:
 
 ```{r}
 eff_params <- data.frame(
-  start              = first_t,
+  start              = 0,
   end                = Inf,
   thalf.eff.iv.last  = TRUE,
   thalf.eff.iv.obs   = TRUE,
   thalf.eff.iv.pred  = TRUE,
+  thalf.eff.pred     = TRUE,
   thalf.eff.last     = TRUE,
   thalf.eff.obs      = TRUE,
   kel.obs            = TRUE,
@@ -406,7 +406,7 @@ Complete `auciv*` family:
 
 ```{r}
 auciv_params <- data.frame(
-  start              = first_t,
+  start              = 0,
   end                = Inf,
   aucivlast          = TRUE,
   aucivall           = TRUE,
@@ -486,7 +486,7 @@ The `mrt.iv.*` parameters subtract `duration/2` from the raw `AUMC/AUC` ratio:
 
 $$\text{MRT}_{IV} = \frac{\text{AUMC}}{\text{AUC}} - \frac{\text{duration}}{2}$$
 
-For an IV bolus (`duration = 0`) the correction is zero. For a 0.5 h infusion, the correction is 0.25 h. When early samples fall within the infusion window the correction may differ slightly from the nominal `duration/2` due to the way PKNCA handles within-infusion timepoints in the AUMC calculation.
+For an IV bolus (`duration = 0`) the correction is zero. For a 0.5 h infusion, the correction is 0.25 h. Any deviation from theory comes from the trapezoidal AUMC/AUC estimate itself, not from the correction term.
 
 Use `mrt.iv.obs` (extrapolated to ∞) when the terminal phase is well characterized and `mrt.iv.last` (to last measurable) otherwise.
 
@@ -499,7 +499,7 @@ For steady-state or partial AUC windows:
 ```{r}
 # AUC from 0 to 4 hours
 partial_auc <- data.frame(
-  start   = first_t,
+  start   = 0,
   end     = 4,
   auclast = TRUE,
   cmax    = TRUE
@@ -519,7 +519,7 @@ Interval semantics are explained in [Selection of Calculation Intervals](https:/
 
 ## Units
 
-Assign units to get automatic unit propagation through derived parameters. See [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html) for the full units workflow.
+Assign units to get automatic unit propagation through derived parameters. See the [Units chapter](units.qmd) and [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html) for the full units workflow.
 
 ```{r}
 units_table <- pknca_units_table(
@@ -552,10 +552,10 @@ Mark individual observations to exclude from calculations (e.g. suspected sampli
 d_conc_with_excl <- d_conc |>
   mutate(excl = ifelse(Subject == "2" & time == 2, "suspected contamination", NA_character_))
 
-o_conc_excl <- PKNCAconc(d_conc_with_excl, conc ~ time | Subject, exclude = "excl")
+o_conc_excl_gen <- PKNCAconc(d_conc_with_excl, conc ~ time | Subject, exclude = "excl")
 
 # The flagged row stays in the data with its exclusion reason
-as.data.frame(o_conc_excl) |> filter(!is.na(excl))
+as.data.frame(o_conc_excl_gen) |> filter(!is.na(excl))
 ```
 
 The exclusion reason travels with the data (shown above), and the excluded point is dropped from every parameter calculation. This is broader than the `exclude_half.life` example in the half-life section, which removed a point from only the λz regression.
@@ -584,7 +584,7 @@ PKNCA.set.summary(
 summary(o_nca)
 ```
 
-Summary customization and results exclusion are covered in the [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
+Summary customization and results exclusion are covered in the [Post-processing chapter](postprocessing.qmd) and the [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
 
 ---
 
@@ -596,7 +596,7 @@ All IV-relevant parameters you can request in an interval:
 interval_cols <- get.interval.cols()
 iv_relevant <- c(
   # Concentration / time landmarks
-  "c0", "cmax", "cmin", "tmax", "tfirst", "tlast",
+  "c0", "cmax", "cmin", "tmax", "tmin", "tfirst", "tlast",
   "clast.obs", "clast.pred", "count_conc", "count_conc_measured",
   # AUC family
   "auclast", "aucall", "aucinf.obs", "aucinf.pred",
@@ -620,7 +620,7 @@ iv_relevant <- c(
   # MRT
   "mrt.iv.last", "mrt.iv.obs", "mrt.iv.pred", "mrt.last", "mrt.obs", "mrt.pred",
   # Effective half-life / kel
-  "thalf.eff.iv.last", "thalf.eff.iv.obs", "thalf.eff.iv.pred",
+  "thalf.eff.iv.last", "thalf.eff.iv.obs", "thalf.eff.iv.pred", "thalf.eff.pred",
   "thalf.eff.last", "thalf.eff.obs",
   "kel.obs", "kel.pred", "kel.last", "kel.iv.obs", "kel.iv.pred", "kel.iv.last",
   # Dose-normalized
@@ -635,5 +635,5 @@ sort(names(interval_cols)[names(interval_cols) %in% iv_relevant])
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [business.*()](https://humanpred.github.io/pknca/reference/business.mean.html) · [PKNCA_impute_method_start_*()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html)
 :::

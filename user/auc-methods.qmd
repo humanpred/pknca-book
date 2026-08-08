@@ -98,7 +98,7 @@ as.data.frame(o_nca_partial) |>
 | `aucint.inf.obs.dose` | Same as `.inf.obs` | **Yes** | λz-based tail |
 | `aucint.inf.pred.dose` | Same as `.inf.pred` | **Yes** | λz-based tail |
 
-> **Note:** `aucint.inf.pred` requires that `lambda.z` has been estimated (i.e., that the terminal slope is calculable from the data window).
+> **Note:** `aucint.inf.pred` requires that `lambda.z` has been estimated (i.e. that the terminal slope is calculable from the data window).
 
 The `.dose` variants use **dose-aware interpolation** (`interp.extrap.conc.dose()`) at the interval start and end. This matters when the interval boundary coincides with a dose time — the `.dose` variant correctly handles the before/after concentration jump. The full decision rules are in the [dose-aware interpolation and extrapolation vignette](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
 
@@ -168,7 +168,7 @@ as.data.frame(o_nca_pext) |>
   select(PPTESTCD, PPORRES)
 ```
 
-Here about 31.5% of `aucinf.obs` is extrapolated — well above the conventional 20% acceptance limit. Note that `pk.nca()` computes `aucpext` but does **not** flag anything on its own: the `exclude` column above is all `NA` despite the high extrapolation. Flagging is a manual step with `exclude()` after `pk.nca()`:
+Here about 31.5% of `aucinf.obs` is extrapolated — well above the conventional 20% acceptance limit. Note that `pk.nca()` computes `aucpext` but does **not** flag anything on its own: the `exclude` column (not shown above) is all `NA` despite the high extrapolation. Flagging is a manual step with `exclude()` after `pk.nca()`:
 
 ```{r}
 o_nca_pext_excl <- exclude(
@@ -185,7 +185,7 @@ as.data.frame(o_nca_pext_excl) |>
 
 The `aucinf` results and the parameters derived from them (including `aucpext` itself) are now flagged. Because `FUN` supplies its own exclusion text, the recorded reason is the function's `"aucpext > 20"` rather than the `reason =` string.
 
-The 20% default comes from the `max.aucinf.pext` option — but the option's only role is to provide the default threshold for `exclude_nca_max.aucinf.pext()`. Setting it (e.g. `PKNCAdata(options = list(max.aucinf.pext = 10))`) does not make `pk.nca()` flag anything by itself. To flag at a different threshold, pass it to the function directly: `exclude_nca_max.aucinf.pext(10)`.
+The 20% default comes from the `max.aucinf.pext` option — but only the **global** option: called with no argument, `exclude_nca_max.aucinf.pext()` reads `PKNCA.options("max.aucinf.pext")`. A per-object setting such as `PKNCAdata(options = list(max.aucinf.pext = 10))` never reaches the exclusion function (and does not make `pk.nca()` flag anything by itself). To flag at a different threshold, pass it to the function directly: `exclude_nca_max.aucinf.pext(10)`.
 
 ---
 
@@ -260,8 +260,8 @@ ggplot(d_plot, aes(x = time, y = conc)) +
 
 ## AUMC — area under the first moment curve
 
-The **area under the first-moment curve** (AUMC) weights concentrations by time and is used to compute mean residence time (MRT):
-$$\text{AUMC} = \int_0^{t} t \cdot C(t) \, dt$$
+The **area under the first moment curve** (AUMC) weights concentrations by time and is used to compute mean residence time (MRT):
+$$\text{AUMC} = \int_0^{t_{\mathrm{last}}} t \cdot C(t) \, dt$$
 
 | Parameter | Meaning |
 |---|---|
@@ -362,21 +362,25 @@ as.data.frame(o_nca_td) |>
 
 ---
 
-## Cav over a specific interval (`cav.int.*`)
+### Cav over a specific interval (`cav.int.*`)
 
-`cav.int.*` computes the average concentration over a specified window using the trapezoidal rule, without requiring a full dosing-interval design.
+`cav.int.*` computes the average concentration over the requested interval, without requiring a full dosing-interval design. The numerator is the corresponding `aucint.*` flavor computed over the window; the divisor is always `end − start`.
 
-| Parameter | Window |
+> **Warning:** because the divisor is always `end − start`, requesting any `cav.int.*` parameter with `end = Inf` divides a finite AUC by infinity and reports 0 — always use a finite `end`.
+
+| Parameter | Numerator (`aucint.*` flavor over the window) |
 |---|---|
-| `cav.int.last` | 0 to last measurable |
-| `cav.int.all` | 0 to last, BLQ = 0 |
-| `cav.int.inf.obs` | 0 to ∞, observed Clast |
-| `cav.int.inf.pred` | 0 to ∞, predicted Clast |
+| `cav.int.last` | `aucint.last` — stops accumulating area at the last measurable concentration |
+| `cav.int.all` | `aucint.all` — post-Tlast BLQ values treated as 0 |
+| `cav.int.inf.obs` | `aucint.inf.obs` — λz extrapolation beyond Tlast, observed Clast |
+| `cav.int.inf.pred` | `aucint.inf.pred` — λz extrapolation beyond Tlast, predicted Clast |
 
 ```{r}
+# Two finite windows: 0–24 h lies inside the observed profile (Tlast = 24.37 h),
+# 0–48 h extends past it
 cav_interval <- data.frame(
   start             = 0,
-  end               = Inf,
+  end               = c(24, 48),
   cav.int.last      = TRUE,
   cav.int.all       = TRUE,
   cav.int.inf.obs   = TRUE,
@@ -387,11 +391,13 @@ o_nca_cav <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = cav_interval))
 
 as.data.frame(o_nca_cav) |>
   filter(grepl("^cav.int", PPTESTCD)) |>
-  select(PPTESTCD, PPORRES)
+  select(start, end, PPTESTCD, PPORRES)
 ```
+
+Over 0–24 h all four flavors integrate the same observed curve, so they coincide. Over 0–48 h they separate: the `.inf` forms extrapolate the tail beyond Tlast with λz (differing from each other only through the observed vs. predicted Clast — nearly identical here), while `.last` and `.all` stop accumulating area at Tlast yet still divide by the full 48 h, which is why their average drops from 6.08 to 3.07 mg/L.
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.dose.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_max.aucinf.pext()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_max.aucinf.pext()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
 :::

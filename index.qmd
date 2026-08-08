@@ -10,7 +10,7 @@ pknca_ver <- as.character(packageVersion("PKNCA"))
 This book was built against **PKNCA `r pknca_ver`**. Examples are verified against that version. For the function reference, see the [pkgdown site](https://humanpred.github.io/pknca/reference/index.html).
 :::
 
-**PKNCA** is an R package for automated noncompartmental analysis (NCA). It calculates PK parameters (AUC, Cmax, half-life, clearance, volume, and many more) from concentration-time data, supports IV and extravascular routes, urine excretion, sparse sampling, multiple-dose designs, and CDISC-aligned output. This book documents PKNCA ≥ 0.12.2 with runnable examples throughout. For the package authors' own orientation material, see the vignettes [Introduction to PKNCA and Usage Instructions](https://humanpred.github.io/pknca/articles/v01-introduction-and-usage.html) and [PKNCA – an R package for noncompartmental analysis](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
+**PKNCA** is an R package for automated noncompartmental analysis (NCA). It calculates PK parameters (AUC, Cmax, half-life, clearance, volume, and many more) from concentration-time data, supports IV and extravascular routes, urine excretion, sparse sampling, multiple-dose designs, and CDISC-aligned output. This book documents PKNCA ≥ 0.12.2 with runnable examples throughout. For the package authors' own orientation material, see the vignettes [Introduction to PKNCA and Usage Instructions](https://humanpred.github.io/pknca/articles/v01-introduction-and-usage.html) and [PKNCA – an R package for noncompartmental analysis of pharmacokinetic data](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
 
 ## What is NCA?
 
@@ -19,7 +19,8 @@ This book was built against **PKNCA `r pknca_ver`**. Examples are verified again
 - How much drug was absorbed? → **AUC**
 - How fast was drug eliminated? → **half-life**, **λz**
 - How high did concentrations get? → **Cmax**
-- How quickly was drug cleared? → **CL**, **Vz**
+- How quickly was drug cleared? → **CL**
+- How widely did drug distribute? → **Vz**
 
 ## Core workflow
 
@@ -53,7 +54,7 @@ The vignette [Computing NCA Parameters for Theophylline](https://humanpred.githu
 | Cmax | ✓ | ✓ |
 | Tmax | ✓ | ✓ |
 | AUClast / AUCinf | ✓ | ✓ |
-| Half-life (λz) | ✓ | ✓ |
+| Half-life / λz | ✓ | ✓ |
 | CL (true clearance) | ✓ | — (apparent: CL/F) |
 | Vz (volume) | ✓ | — (apparent: Vz/F) |
 | Bioavailability (F) | — (serves as reference) | ✓ |
@@ -62,9 +63,11 @@ For bioavailability, IV data serve as the reference against which extravascular 
 
 ## What's new in 0.12.2
 
-- **`normalize_by_col()` / `normalize()`** — dose-normalize results using a column in the result data frame
+- **`normalize_by_col()` / `normalize()`** — normalize results by a column in the concentration data (`normalize_by_col()`) or a custom normalization table (`normalize()`)
 - **`tmin` parameter** — time of minimum observed concentration
-- **Tobit regression** for half-life (now on CRAN; previously GitHub only)
+- **Tobit regression** for half-life, including full `pk.nca()` pipeline support via `PKNCAconc(lloq = )`
+- **CDISC output format** — `as.data.frame(results, out_format = "cdisc")` translates parameter codes and adds PPTEST
+- **Expanded derived parameters** — the `cl.*`, `kel.*`, `mrt.*`, `vss.*`, and `vz.*` families grew substantially
 - **Sparse AUMC** and five new sparse-derived parameters (`cl.sparse.last`, `kel.sparse.last`, `mrt.ivint.last`, `vss.sparse.last`, `vz.sparse.last`)
 - **New excretion parameters**: `volpk`, `ermax`, `ertmax`, `ertlst`, dose-normalized renal clearance (`clr.*.dn`)
 - **`lambda.z.corrxy`** — correlation between x and y in the λz regression
@@ -74,5 +77,5 @@ For bioavailability, IV data serve as the reference against which extravascular 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [normalize()](https://humanpred.github.io/pknca/reference/normalize.html) · [normalize_by_col()](https://humanpred.github.io/pknca/reference/normalize_by_col.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [normalize()](https://humanpred.github.io/pknca/reference/normalize.html) · [normalize_by_col()](https://humanpred.github.io/pknca/reference/normalize_by_col.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html)
 :::

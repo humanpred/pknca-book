@@ -153,7 +153,7 @@ open _book/index.html
 Confirm:
 - Output matches expected values
 - No unexpected `NA` results
-- Warnings are expected (e.g., half-life not calculable for some subjects)
+- Warnings are expected (e.g. half-life not calculable for some subjects)
 
 ---
 
