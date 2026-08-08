@@ -91,7 +91,7 @@ as.data.frame(o_nca) |>
 | `clast.obs` | Observed concentration at `tlast` |
 | `clast.pred` | Predicted concentration at `tlast` (from λz fit) |
 | `count_conc` | Total observations (including BLQ) |
-| `count_conc_measured` | Observations above the LLOQ |
+| `count_conc_measured` | Observations above LOQ (non-BLQ) |
 | `lambda.z.time.last` | Last timepoint used in the λz regression |
 
 ```{r}
@@ -121,8 +121,6 @@ as.data.frame(o_nca_lm) |>
 
 **When there are multiple peaks** (fed state, enterohepatic recirculation), the default is to return the first Tmax. Control this with `first.tmax`:
 
-Tie-breaking for Tmin is controlled by the `first.tmin` option (PKNCA ≥ 0.12.2, default `TRUE` = return first occurrence):
-
 ```{r}
 # Use the last Tmax when there are ties
 o_data_lasttmax <- PKNCAdata(
@@ -132,9 +130,11 @@ o_data_lasttmax <- PKNCAdata(
 )
 ```
 
+Tie-breaking for Tmin is controlled by the `first.tmin` option (PKNCA ≥ 0.12.2, default `TRUE` = return first occurrence).
+
 ### AUC variants
 
-Same variants as IV, but note that for EV routes **CL and Vz are apparent** (divided by F, the bioavailability fraction):
+The AUC family covers exposure to the last measurable concentration (`auclast`) and exposure extrapolated to infinity using either the observed or the λz-predicted Clast (`aucinf.obs` / `aucinf.pred`), with `aucpext.obs` reporting how much of AUCinf was extrapolated. See the [AUC chapter](auc-methods.qmd) for the full AUC family and the integration methods behind it.
 
 | Parameter | Meaning |
 |---|---|
@@ -142,8 +142,6 @@ Same variants as IV, but note that for EV routes **CL and Vz are apparent** (div
 | `aucinf.obs` | AUC extrapolated to ∞ (using observed Clast) |
 | `aucinf.pred` | AUC extrapolated to ∞ (using predicted Clast) |
 | `aucpext.obs` | % of AUCinf that is extrapolated |
-| `cl.obs` | Apparent clearance = Dose / AUCinf.obs (this is CL/F) |
-| `vz.obs` | Apparent volume = CL.obs / λz (this is Vz/F) |
 
 ```{r}
 auc_params <- data.frame(
@@ -152,15 +150,14 @@ auc_params <- data.frame(
   auclast      = TRUE,
   aucinf.obs   = TRUE,
   aucinf.pred  = TRUE,
-  aucpext.obs  = TRUE,
-  cl.obs       = TRUE
+  aucpext.obs  = TRUE
 )
 
 o_data_auc <- PKNCAdata(o_conc, o_dose, intervals = auc_params)
 o_nca_auc  <- pk.nca(o_data_auc)
 
 as.data.frame(o_nca_auc) |>
-  filter(PPTESTCD %in% c("auclast", "aucinf.obs", "aucpext.obs", "cl.obs")) |>
+  filter(PPTESTCD %in% c("auclast", "aucinf.obs", "aucpext.obs")) |>
   select(subject, PPTESTCD, PPORRES) |>
   tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES) |>
   arrange(subject)
@@ -168,7 +165,7 @@ as.data.frame(o_nca_auc) |>
 
 ### Half-life and λz
 
-For EV, the terminal phase reflects elimination (not absorption) once absorption is complete. The same quality controls apply as for IV.
+For EV, the terminal phase reflects elimination (not absorption) once absorption is complete. The usual λz quality controls — enough points in the regression, adjusted R², and span ratio — apply regardless of route; see the [Half-Life chapter](halflife.qmd) for point selection and quality thresholds.
 
 ```{r}
 hl_params <- data.frame(
@@ -202,6 +199,15 @@ o_data_allow_tmax <- PKNCAdata(
 )
 ```
 
+### Clearance and volume (apparent)
+
+For extravascular dosing the fraction absorbed (F) is unknown, so clearance and volume cannot be separated from it: PKNCA's `cl.*` and `vz.*` values are apparent, i.e. CL/F and Vz/F. The formulas are the same as for IV dosing (Dose / AUC, then CL / λz), with F implicitly in the denominator — both are requested in the basic analysis above.
+
+| Parameter | Meaning |
+|---|---|
+| `cl.obs` | Apparent clearance = Dose / AUCinf.obs (this is CL/F) |
+| `vz.obs` | Apparent volume = CL.obs / λz (this is Vz/F) |
+
 ### Lag time (tlag)
 
 `tlag` is the time before absorption begins — the delay between dosing and the first measurable rise in concentration. Common for enteric-coated formulations or SC injections with a diffusion delay.
@@ -221,42 +227,23 @@ as.data.frame(o_nca_tlag) |>
 
 ### Bioavailability (f)
 
-`f` computes relative bioavailability — the dose-normalized AUC ratio of a test treatment against a reference treatment — via `pk.calc.f()`. It requires a **reference** AUC in the grouping structure (typically a treatment or period column in a crossover design), so requesting `f = TRUE` only makes sense when the data contain paired test/reference arms. Theoph is single-arm, so there is no reference here — see the [Bioavailability](#bioavailability) section below for an illustrative setup.
-
-> See `?pk.calc.f` for the full setup. `f` is typically used in crossover bioequivalence studies.
+`f` (relative bioavailability via `pk.calc.f()`) requires paired test/reference treatments in the grouping structure — see the [Bioavailability](#bioavailability) section below.
 
 ### Volume at steady state (Vss)
 
-Vss is computed from CL and MRT. For EV routes these are apparent values (divided by F).
+Vss is computed from CL and MRT, so for extravascular dosing `vss.obs` and `vss.pred` are the apparent Vss (i.e., Vss/F). `vss.last` uses MRTlast instead of the extrapolated MRT.
 
 ```{r}
 vss_params <- data.frame(
   start    = 0,
   end      = Inf,
   vss.obs  = TRUE,   # apparent Vss = CL.obs × MRT.obs
-  vss.pred = TRUE
+  vss.pred = TRUE,
+  vss.last = TRUE    # uses MRTlast
 )
 
 o_nca_vss <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = vss_params))
 as.data.frame(o_nca_vss) |>
-  filter(PPTESTCD %in% c("vss.obs", "vss.pred")) |>
-  select(subject, PPTESTCD, PPORRES) |>
-  arrange(subject, PPTESTCD)
-```
-
-### Vss variants
-
-For extravascular dosing, `vss.obs` and `vss.pred` are the apparent Vss (i.e., Vss/F). `vss.last` uses MRTlast instead of the extrapolated MRT.
-
-```{r}
-vss_all_params <- data.frame(
-  start    = 0, end = Inf,
-  vss.obs  = TRUE,
-  vss.pred = TRUE,
-  vss.last = TRUE
-)
-o_nca_vss_all <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = vss_all_params))
-as.data.frame(o_nca_vss_all) |>
   filter(grepl("^vss", PPTESTCD)) |>
   select(subject, PPTESTCD, PPORRES) |>
   arrange(subject, PPTESTCD)
@@ -315,7 +302,9 @@ as.data.frame(o_nca_eff) |>
   arrange(subject, PPTESTCD)
 ```
 
-### AUC for a specific tau (dosing interval)
+---
+
+## AUC over a specific interval
 
 For multiple-dose studies, request AUC over the dosing interval (tau):
 
@@ -428,7 +417,7 @@ cat(sprintf("AUC ratio EV/IV: %.1f — illustrative only, different drugs\n",
             ev_aucinf / iv_aucinf))
 ```
 
-> In a real bioavailability study, subjects receive both the IV reference and the EV test treatment, and `pk.calc.f()` computes F as the dose-normalized AUC ratio of test to reference.
+> In a real bioavailability study, subjects receive both the IV reference and the EV test treatment, and `pk.calc.f()` computes F as the dose-normalized AUC ratio of test to reference. `f` is typically used in crossover bioequivalence studies — see `?pk.calc.f` for the full setup.
 
 ---
 
@@ -520,41 +509,23 @@ o_data_blq <- PKNCAdata(
 
 ## AUC integration methods
 
-The default integration method is **lin up / log down** (linear interpolation on the ascending phase, log-linear on the descending phase). Three methods are available:
+The default integration method is **lin up / log down** (linear interpolation on the ascending phase, log-linear on the descending phase). The alternatives, `"linear"` and `"lin-log"`, are selected per-analysis with the `auc.method` option. See the [AUC chapter](auc-methods.qmd) for how each method computes the trapezoids and when to prefer which.
 
 ```{r}
-# Method 1: linear trapezoidal (simplest)
+# Switch to the linear trapezoidal method
 o_data_lin <- PKNCAdata(o_conc, o_dose, intervals = ev_intervals,
-                         options = list(auc.method = "linear"))
-
-# Method 2: lin-log (linear before Tmax, log trapezoidal after Tmax)
-o_data_linlog <- PKNCAdata(o_conc, o_dose, intervals = ev_intervals,
-                            options = list(auc.method = "lin-log"))
-
-# Method 3: lin up/log down (default, recommended)
-o_data_liuplogdown <- PKNCAdata(o_conc, o_dose, intervals = ev_intervals,
-                                 options = list(auc.method = "lin up/log down"))
-
-# Compare AUClast across methods
-compare_methods <- function(label, data_obj) {
-  nca <- pk.nca(data_obj)
-  as.data.frame(nca) |>
-    filter(PPTESTCD == "auclast") |>
-    mutate(method = label) |>
-    select(method, subject, PPORRES)
-}
-
-bind_rows(
-  compare_methods("linear",           o_data_lin),
-  compare_methods("lin up/log down",  o_data_liuplogdown)
-) |>
-  tidyr::pivot_wider(names_from = method, values_from = PPORRES) |>
-  arrange(subject)
+                        options = list(auc.method = "linear"))
+as.data.frame(pk.nca(o_data_lin)) |>
+  filter(PPTESTCD == "auclast") |>
+  select(subject, PPTESTCD, PPORRES) |>
+  head(3)
 ```
 
 ---
 
 ## Units
+
+Assign units to get automatic unit propagation through derived parameters. See the [Units chapter](units.qmd) for the full units system, including unit conversion and per-parameter overrides.
 
 ```{r}
 units_table <- pknca_units_table(
@@ -578,13 +549,9 @@ as.data.frame(o_nca_u) |>
 
 ---
 
-## Summary
+## Summary with custom statistics
 
-```{r}
-summary(o_nca)
-```
-
-Customize for specific parameters:
+`summary()` produces a study-report-style table of summary statistics per parameter, and `PKNCA.set.summary()` customizes the statistics reported for any parameter — see [Post-processing](postprocessing.qmd) for the full summary workflow.
 
 ```{r}
 PKNCA.set.summary(

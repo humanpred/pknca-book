@@ -18,7 +18,7 @@ d_dose <- Theoph |> as.data.frame() |>
 
 ## What superposition does
 
-**Superposition** predicts steady-state concentration-time profiles from a single-dose profile by linearly summing lagged copies of the single-dose curve. This is the NCA equivalent of multi-dose simulation, and it requires no compartmental model.
+**Superposition** predicts steady-state concentration-time profiles from a single-dose profile by linearly summing lagged copies of the single-dose curve. This is the NCA equivalent of multi-dose simulation, and it requires no compartmental model. Observed steady-state parameters (Cav, PTR, fluctuation) are covered in [Multiple-Dose and Steady-State](multiple-dose.qmd); estimating when steady state is reached is covered in [Time to Steady State](tss.qmd).
 
 The core assumption is **linear, time-invariant pharmacokinetics**: the drug does not accumulate non-linearly, and clearance and volume do not change over time.
 

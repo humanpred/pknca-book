@@ -33,8 +33,33 @@ After `pk.nca()` you may need to:
 1. **Exclude** specific results that failed QC (poor half-life fit, protocol deviation)
 2. **Normalize** parameters by dose (built-in `.dn` variants)
 3. **Summarize** with custom statistics, respecting exclusions
+4. **Extract** results as a tidy data frame for further analysis
+5. **Report** with the `business.*` summary helper functions
+6. **Inspect** which concentrations each λz regression used
 
 All of this operates on the `PKNCAresults` object without rerunning the analysis.
+
+---
+
+## Extracting results
+
+`as.data.frame()` returns the full tidy result including excluded rows:
+
+```{r}
+df <- as.data.frame(o_nca)
+
+# Columns:
+# subject    — group identifier
+# start/end  — interval boundaries
+# PPTESTCD   — parameter code
+# PPORRES    — numeric result
+# exclude    — NA if valid; character reason if excluded
+
+df |>
+  filter(PPTESTCD == "auclast") |>
+  select(subject, PPORRES, exclude) |>
+  arrange(subject)
+```
 
 ---
 
@@ -134,34 +159,7 @@ data.frame(
 
 Each `.dn` parameter is computed as `parameter / dose` where `dose` is the dose from the `PKNCAdose` object for that interval. In PKNCA ≥ 0.12.2 this includes renal clearance variants (`clr.last.dn`, `clr.obs.dn`, `clr.pred.dn`).
 
-### Custom normalization with `normalize()` (≥ 0.12.2)
-
-For normalization by columns other than dose (e.g., body weight, body surface area), PKNCA 0.12.2 adds `normalize()`. You supply a `norm_table` data frame containing the grouping columns, a `normalization` value, and a `unit` for each group:
-
-```{r}
-# Normalize AUClast and Cmax by body weight
-norm_tbl <- as.data.frame(Theoph) |>
-  group_by(Subject) |>
-  summarise(normalization = Wt[1], unit = "kg", .groups = "drop") |>
-  rename(subject = Subject)
-
-df_results <- as.data.frame(o_nca)
-df_bw_norm <- normalize(
-  df_results,
-  norm_table  = norm_tbl,
-  parameters  = c("auclast", "cmax"),
-  suffix      = ".bw"
-)
-
-df_bw_norm |>
-  select(subject, PPTESTCD, PPORRES) |>
-  arrange(subject, PPTESTCD) |>
-  head(8)
-```
-
-> `normalize()` returns **only** the normalized rows, under new parameter names — `auclast` becomes `auclast.bw`, `cmax` becomes `cmax.bw`. To keep both original and normalized values, bind the normalized rows onto the original results: `bind_rows(df_results, df_bw_norm)`.
-
-`normalize_by_col()` is the low-level variant that pulls normalization values from a column already present in the `PKNCAconc` data frame, rather than from a separate table.
+Request the `.dn` variants in the interval like any other parameter:
 
 ```{r}
 dn_interval <- data.frame(
@@ -191,27 +189,34 @@ as.data.frame(o_nca_dn) |>
   arrange(subject)
 ```
 
----
+### Custom normalization with `normalize()` (≥ 0.12.2)
 
-## Extracting results
-
-`as.data.frame()` returns the full tidy result including excluded rows:
+For normalization by columns other than dose (e.g., body weight, body surface area), PKNCA 0.12.2 adds `normalize()`. You supply a `norm_table` data frame containing the grouping columns, a `normalization` value, and a `unit` for each group:
 
 ```{r}
-df <- as.data.frame(o_nca)
+# Normalize AUClast and Cmax by body weight
+norm_tbl <- as.data.frame(Theoph) |>
+  group_by(Subject) |>
+  summarise(normalization = Wt[1], unit = "kg", .groups = "drop") |>
+  rename(subject = Subject)
 
-# Columns:
-# subject    — group identifier
-# start/end  — interval boundaries
-# PPTESTCD   — parameter code
-# PPORRES    — numeric result
-# exclude    — NA if valid; character reason if excluded
+df_results <- as.data.frame(o_nca)
+df_bw_norm <- normalize(
+  df_results,
+  norm_table  = norm_tbl,
+  parameters  = c("auclast", "cmax"),
+  suffix      = ".bw"
+)
 
-df |>
-  filter(PPTESTCD == "auclast") |>
-  select(subject, PPORRES, exclude) |>
-  arrange(subject)
+df_bw_norm |>
+  select(subject, PPTESTCD, PPORRES) |>
+  arrange(subject, PPTESTCD) |>
+  head(8)
 ```
+
+> `normalize()` returns **only** the normalized rows, under new parameter names — `auclast` becomes `auclast.bw`, `cmax` becomes `cmax.bw`. To keep both original and normalized values, bind the normalized rows onto the original results: `bind_rows(df_results, df_bw_norm)`.
+
+`normalize_by_col()` is the low-level variant that pulls normalization values from a column already present in the `PKNCAconc` data frame, rather than from a separate table.
 
 ---
 
@@ -350,46 +355,7 @@ ggplot(subj1_conc, aes(x = time, y = conc, colour = in_lambda_z)) +
 
 ## Imputation methods
 
-PKNCA supports interval-start concentration imputation strategies, controlled by the `impute` argument to `PKNCAdata()` — either a method name applied to every interval, or the name of a column in the intervals data frame holding per-interval methods.
-
-Built-in imputation strategies:
-
-| Strategy | When it applies | What it does |
-|---|---|---|
-| `"start_conc0"` | Interval start before first measured time | Adds conc = 0 at the interval start time |
-| `"start_predose"` | Interval start before first measured time | Uses the last pre-dose (pre-interval) concentration |
-| `"start_cmin"` | Interval start before first measured time | Uses the minimum observed concentration in the interval |
-
-All three strategies are implemented as exported functions — `PKNCA_impute_method_start_conc0()`, `PKNCA_impute_method_start_predose()`, `PKNCA_impute_method_start_cmin()` — and can also be referenced by their string names.
-
-```{r}
-# Theoph subject 1 starts at t=0 — simulate a dataset with no t=0 sample
-d_conc_imp <- d_conc_pp |> filter(subject == "1", time > 0)
-o_conc_imp <- PKNCAconc(d_conc_imp, conc ~ time | subject)
-o_dose_imp <- PKNCAdose(
-  d_dose_pp |> filter(subject == "1"),
-  dose ~ time | subject,
-  route = "extravascular"
-)
-
-ivl <- data.frame(start = 0, end = Inf, auclast = TRUE)
-
-r_conc0   <- pk.nca(PKNCAdata(o_conc_imp, o_dose_imp, intervals = ivl, impute = "start_conc0"))
-r_cmin    <- pk.nca(PKNCAdata(o_conc_imp, o_dose_imp, intervals = ivl, impute = "start_cmin"))
-
-# start_predose uses last pre-dose conc; with no pre-dose sample it returns NA
-r_predose <- pk.nca(PKNCAdata(o_conc_imp, o_dose_imp, intervals = ivl, impute = "start_predose"))
-
-bind_rows(
-  as.data.frame(r_conc0)   |> filter(PPTESTCD == "auclast") |> mutate(strategy = "start_conc0"),
-  as.data.frame(r_cmin)    |> filter(PPTESTCD == "auclast") |> mutate(strategy = "start_cmin"),
-  as.data.frame(r_predose) |> filter(PPTESTCD == "auclast") |> mutate(strategy = "start_predose")
-) |>
-  select(strategy, PPTESTCD, PPORRES)
-```
-
-> **Choosing a strategy:** `start_conc0` is appropriate for drugs fully eliminated between doses or for the first dose. `start_predose` is appropriate when a pre-dose (trough) sample was collected. `start_cmin` is a conservative option when no pre-dose sample was collected and a zero is not pharmacologically appropriate.
-
+Imputation is a pre-calculation step, not a post-processing step. It is specified before `pk.nca()` runs via the `impute` argument to `PKNCAdata()` — either a method name applied to every interval, or the name of a column in the intervals data frame holding per-interval methods. See the [Concentration Imputation chapter](imputation.qmd) for the built-in strategies, chaining, custom methods, and a side-by-side comparison.
 
 ---
 

@@ -199,7 +199,7 @@ All options and what they control:
 | `progress` | `TRUE` | Show progress bar during `pk.nca()` |
 | `debug` | `NULL` | Enable internal debug output (not for routine use) |
 
-Override for a single analysis by passing `options` to `PKNCAdata()`:
+Override for a single analysis by passing `options` to `PKNCAdata()`. PKNCA has no `update()` method, so to rerun with different settings you build a new `PKNCAdata` object with the new `options` and call `pk.nca()` again:
 
 ```{r}
 o_data_strict <- PKNCAdata(
@@ -227,20 +227,6 @@ ggplot(auclast_df, aes(x = Subject, y = PPORRES)) +
   labs(title = "AUClast by Subject", x = "Subject", y = "AUClast (h·mg/L)") +
   theme_minimal()
 ```
-
----
-
-## Re-running with different options
-
-PKNCA does not have an `update()` method. To rerun with changed settings,
-pass a new `options` list to `PKNCAdata()` and call `pk.nca()` again:
-
-```{r}
-# Change AUC method and recalculate
-o_data_linear <- PKNCAdata(o_conc, o_dose, options = list(auc.method = "linear"))
-o_nca_linear  <- pk.nca(o_data_linear)
-```
-
 
 ---
 

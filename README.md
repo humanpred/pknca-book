@@ -33,10 +33,10 @@ open _book/index.html
 | [Extravascular (oral/SC)](user/extravascular.qmd) | BLQ handling; imputation strategies; tmin; lag time; multiple peaks |
 | [Intravascular (IV)](user/intravascular.qmd) | IV bolus NCA; C0 back-extrapolation; IV infusion with ceoi; MRT correction |
 | [Multiple-dose / steady-state](user/multiple-dose.qmd) | deg.fluc; swing; PTR; Cav; tau detection |
-| [Urine excretion](user/urine-excretion.qmd) | ae; fe; clr.*; volpk; ermax/ertmax/ertlst; clr.*.dn |
-| [Sparse PK sampling](user/sparse.qmd) | sparse_auclast + SE + df; sparse AUMC; mrt/cl/kel.sparse.last |
 | [Superposition](user/superposition.qmd) | Predicting multiple-dose profiles from single-dose data |
 | [Time to steady state](user/tss.qmd) | pk.tss.monoexponential; pk.tss.stepwise.linear; pk.tss |
+| [Urine excretion](user/urine-excretion.qmd) | ae; fe; clr.*; volpk; ermax/ertmax/ertlst; clr.*.dn |
+| [Sparse PK sampling](user/sparse.qmd) | sparse_auclast + SE + df; sparse AUMC; mrt/cl/kel.sparse.last |
 | [Post-processing](user/postprocessing.qmd) | exclude(); normalize(); 17 .dn parameters; PKNCA.set.summary; get_halflife_points |
 | [Units](user/units.qmd) | pknca_units_table() S3 generic; PKNCAdata method; preferred units; conversions |
 | [Imputation](user/imputation.qmd) | start_conc0; start_predose; start_cmin; custom imputation methods |
@@ -50,8 +50,8 @@ open _book/index.html
 
 | Chapter | Topics |
 |---|---|
-| [Function dependencies](dev/function-deps.qmd) | Parameter dependency graph |
 | [Architecture](dev/architecture.qmd) | Internal structure of PKNCA |
+| [Function dependencies](dev/function-deps.qmd) | Parameter dependency graph |
 
 ## What's new in PKNCA 0.12.2
 

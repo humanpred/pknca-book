@@ -218,10 +218,10 @@ user/                # 19 User Guide chapters
   extravascular.qmd  # oral/SC; BLQ; tmin; lag time
   intravascular.qmd  # IV bolus; C0; IV infusion; ceoi; MRT
   multiple-dose.qmd  # steady-state parameters; tau detection
-  urine-excretion.qmd# ae; fe; clr; volpk; ermax; ertmax; ertlst; clr.*.dn
-  sparse.qmd         # sparse_auclast; sparse AUMC; derived sparse params
   superposition.qmd  # predicting multiple-dose from single-dose
   tss.qmd            # time to steady state
+  urine-excretion.qmd# ae; fe; clr; volpk; ermax; ertmax; ertlst; clr.*.dn
+  sparse.qmd         # sparse_auclast; sparse AUMC; derived sparse params
   postprocessing.qmd # exclude(); normalize(); .dn parameters; PKNCA.set.summary
   units.qmd          # pknca_units_table(); preferred units; conversions
   imputation.qmd     # built-in imputation methods; custom methods
@@ -231,6 +231,6 @@ user/                # 19 User Guide chapters
   regulatory.qmd     # PP domain; PPEXCLFL; summary() for CSR tables
   validation.qmd     # testthat suite; version pinning; spot-checks
 dev/                 # Developer Reference
-  function-deps.qmd  # parameter dependency graph
   architecture.qmd   # class hierarchy; interval column system; formalsmap
+  function-deps.qmd  # parameter dependency graph
 ```

@@ -30,10 +30,10 @@ book:
         - user/extravascular.qmd
         - user/intravascular.qmd
         - user/multiple-dose.qmd
-        - user/urine-excretion.qmd
-        - user/sparse.qmd
         - user/superposition.qmd
         - user/tss.qmd
+        - user/urine-excretion.qmd
+        - user/sparse.qmd
         - user/postprocessing.qmd
         - user/units.qmd
         - user/imputation.qmd
@@ -44,8 +44,8 @@ book:
         - user/validation.qmd
     - part: "Developer Reference"
       chapters:
-        - dev/function-deps.qmd
         - dev/architecture.qmd
+        - dev/function-deps.qmd
 
 format:
   html:

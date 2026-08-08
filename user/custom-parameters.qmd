@@ -61,6 +61,28 @@ add.interval.col(
 
 ---
 
+## The `formalsmap` argument
+
+Each `formalsmap` entry has the form `<your function's argument> = "<PKNCA data name>"` — the **names** of the list must be your function's formal arguments, and the **values** are the PKNCA data or parameter names that supply them. For example, PKNCA registers `mrt.obs` with `formalsmap = list(auc = "aucinf.obs", aumc = "aumcinf.obs")`: the computed `aucinf.obs` value is passed to the function's `auc` argument.
+
+Standard PKNCA data names available as `formalsmap` values:
+
+| PKNCA name | What it provides |
+|---|---|
+| `conc` | Concentration vector for the current interval |
+| `time` | Time vector for the current interval |
+| `dose` | Total dose in the current interval |
+| `start` | Interval start time |
+| `end` | Interval end time |
+| `half.life` | Computed half-life (if in `depends`) |
+| `auclast` | Computed AUClast (if in `depends`) |
+| `cmax` | Computed Cmax (if in `depends`) |
+| *(any parameter name)* | Any other registered parameter in `depends` |
+
+If your function argument names **exactly match** PKNCA's standard names, `formalsmap` can be omitted or left empty.
+
+---
+
 ## Example 1: derived from other parameters
 
 A parameter that divides two already-computed parameters. Use `depends` to declare what must be computed first (shown here without `formalsmap` because the function's argument names match the parameter names).
@@ -251,28 +273,6 @@ as.data.frame(o_nca_multi) |>
   tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES) |>
   arrange(subject)
 ```
-
----
-
-## The `formalsmap` argument
-
-Each `formalsmap` entry has the form `<your function's argument> = "<PKNCA data name>"` — the **names** of the list must be your function's formal arguments, and the **values** are the PKNCA data or parameter names that supply them. For example, PKNCA registers `mrt.obs` with `formalsmap = list(auc = "aucinf.obs", aumc = "aumcinf.obs")`: the computed `aucinf.obs` value is passed to the function's `auc` argument.
-
-Standard PKNCA data names available as `formalsmap` values:
-
-| PKNCA name | What it provides |
-|---|---|
-| `conc` | Concentration vector for the current interval |
-| `time` | Time vector for the current interval |
-| `dose` | Total dose in the current interval |
-| `start` | Interval start time |
-| `end` | Interval end time |
-| `half.life` | Computed half-life (if in `depends`) |
-| `auclast` | Computed AUClast (if in `depends`) |
-| `cmax` | Computed Cmax (if in `depends`) |
-| *(any parameter name)* | Any other registered parameter in `depends` |
-
-If your function argument names **exactly match** PKNCA's standard names, `formalsmap` can be omitted or left empty.
 
 ---
 

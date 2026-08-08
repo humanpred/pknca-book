@@ -82,9 +82,9 @@ as.data.frame(o_nca) |>
 
 ---
 
-## Parameter reference: what each one means
+## Parameter reference
 
-### Cmax, Tmax, Cmin, Tfirst, Tlast, Clast
+### Concentration and time landmarks
 
 For IV bolus, Cmax is the first measured concentration (no absorption phase). Tmax is the time of that first sample.
 
@@ -93,13 +93,14 @@ For IV bolus, Cmax is the first measured concentration (no absorption phase). Tm
 | `cmax` | Maximum observed concentration |
 | `tmax` | Time of Cmax |
 | `cmin` | Minimum observed concentration in the interval |
-| `tfirst` | First time with a non-zero (or non-BLQ) concentration |
+| `tmin` | Time of the minimum observed concentration (≥ 0.12.2) |
+| `tfirst` | First time with a non-zero (non-BLQ) concentration |
 | `tlast` | Last time with a measurable concentration |
 | `clast.obs` | Observed concentration at `tlast` |
 | `clast.pred` | Predicted concentration at `tlast` (from λz fit) |
-| `count_conc` | Total number of concentration observations (including BLQ) |
-| `count_conc_measured` | Number of observations above the LLOQ |
-| `lambda.z.time.last` | Last timepoint included in the λz regression |
+| `count_conc` | Total observations (including BLQ) |
+| `count_conc_measured` | Observations above LOQ (non-BLQ) |
+| `lambda.z.time.last` | Last timepoint used in the λz regression |
 
 ```{r}
 landmark_params <- data.frame(
@@ -108,6 +109,7 @@ landmark_params <- data.frame(
   cmax                = TRUE,
   tmax                = TRUE,
   cmin                = TRUE,
+  tmin                = TRUE,
   tfirst              = TRUE,
   tlast               = TRUE,
   clast.obs           = TRUE,
@@ -119,7 +121,7 @@ landmark_params <- data.frame(
 o_nca_lm <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = landmark_params, impute = "start_conc0"))
 
 as.data.frame(o_nca_lm) |>
-  filter(PPTESTCD %in% c("cmax","tmax","cmin","tfirst","tlast",
+  filter(PPTESTCD %in% c("cmax","tmax","cmin","tmin","tfirst","tlast",
                           "clast.obs","clast.pred","count_conc","count_conc_measured")) |>
   select(Subject, PPTESTCD, PPORRES) |>
   arrange(Subject, PPTESTCD)
@@ -158,6 +160,8 @@ as.data.frame(o_nca_c0) |>
 | `aucinf.obs` | AUC extrapolated to ∞, using observed Clast |
 | `aucinf.pred` | AUC extrapolated to ∞, using predicted Clast from λz fit |
 | `aucpext.obs` | % of AUCinf that is extrapolated (quality check) |
+
+All of these are computed with the current integration method (default **lin up/log down**) — see the [AUC chapter](auc-methods.qmd) for the available methods and how to choose one.
 
 ```{r}
 auc_params <- data.frame(
@@ -305,7 +309,7 @@ All MRT variants for IV:
 | `mrt.obs` | MRT extrapolated to ∞, observed Clast (no IV correction) |
 | `mrt.pred` | MRT extrapolated to ∞, predicted Clast (no IV correction) |
 
-The IV-corrected variants (`mrt.iv.*`) subtract half the infusion duration from the raw MRT: `MRT_IV = AUMC/AUC − duration/2`. For an IV bolus (duration = 0) the correction is zero; for a 0.5 h infusion the correction is 0.25 h. The non-IV variants (`mrt.*`) use the raw AUMC/AUC ratio without any duration correction.
+The IV-corrected variants (`mrt.iv.*`) subtract half the infusion duration from the raw AUMC/AUC ratio, while the non-IV variants (`mrt.*`) use the raw ratio — see [MRT correction for infusions](#mrt-correction-for-infusions) below for the formula and a worked example.
 
 ```{r}
 mrt_params <- data.frame(
@@ -534,7 +538,7 @@ as.data.frame(o_nca_u) |>
 
 ---
 
-## Excluding data points
+## Excluding observations
 
 Mark individual observations to exclude from calculations (e.g., suspected sampling errors):
 
@@ -549,6 +553,8 @@ as.data.frame(o_conc_excl) |> filter(!is.na(excl))
 ```
 
 The exclusion reason travels with the data (shown above), and the excluded point is dropped from every parameter calculation — the λz exclusion example above shows the resulting change in `lambda.z.n.points`.
+
+Below-limit-of-quantification (BLQ) values are handled separately from exclusions, via the `conc.blq` option — see the [BLQ section of the Extravascular chapter](extravascular.qmd#blq-below-limit-of-quantification-handling).
 
 ---
 

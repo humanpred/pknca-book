@@ -132,6 +132,28 @@ as.data.frame(o_nca_all_partial) |>
 
 ---
 
+## Concentration interpolation at interval boundaries
+
+When a requested interval boundary (e.g., `end = 5`) falls between two observed timepoints, PKNCA interpolates the concentration at that boundary before computing AUC.
+
+The interpolation method matches the AUC method:
+- `"linear"` → linear interpolation
+- `"lin-log"` → linear interpolation before Tmax, log-linear after Tmax
+- `"lin up/log down"` → log-linear interpolation on the descending phase
+
+```{r}
+# end = 5 falls between observed samples t = 3.82 and t = 5.10 for subject 1
+interp_interval <- data.frame(start = 0, end = 5, auclast = TRUE)
+o_nca_interp <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = interp_interval))
+as.data.frame(o_nca_interp) |>
+  filter(PPTESTCD == "auclast") |>
+  select(start, end, PPTESTCD, PPORRES)
+```
+
+For boundaries that coincide with a dose time, the `.dose` variants above use dose-aware interpolation instead — see the [Dose-aware interpolation chapter](dose-aware-interpolation.qmd).
+
+---
+
 ## Percent extrapolation (%AUCextrap)
 
 When using `aucinf`, you should check what fraction was extrapolated beyond the last observation.
@@ -277,7 +299,11 @@ as.data.frame(o_nca_aumc) |>
 
 ---
 
-## AUC above a threshold (`aucabove.*`)
+## Other interval parameters
+
+These interval parameters are requested the same way as AUCs and often accompany them.
+
+### AUC above a threshold (`aucabove.*`)
 
 `aucabove.*` computes the area under the curve above a reference concentration — useful for quantifying exposure above a minimum effective concentration (for the duration above it, see `time_above`).
 
@@ -305,9 +331,7 @@ as.data.frame(o_nca_above) |>
   select(PPTESTCD, PPORRES)
 ```
 
----
-
-## Time above a threshold (`time_above`)
+### Time above a threshold (`time_above`)
 
 `time_above` computes the total duration (in time units) for which the concentration exceeds a specified threshold. The threshold is set via the `conc_above` column in the intervals data frame.
 
@@ -327,9 +351,7 @@ as.data.frame(o_nca_ta) |>
   select(PPTESTCD, PPORRES)
 ```
 
----
-
-## Total dose (`totdose`)
+### Total dose (`totdose`)
 
 `totdose` is the total amount administered within the analysis interval — it is extracted from the dose object rather than computed from concentrations. Useful as a reference column in your results data frame.
 
@@ -377,27 +399,6 @@ as.data.frame(o_nca_cav) |>
   filter(grepl("^cav.int", PPTESTCD)) |>
   select(PPTESTCD, PPORRES)
 ```
-
----
-
-## Concentration interpolation at interval boundaries
-
-When a requested interval boundary (e.g., `end = 5`) falls between two observed timepoints, PKNCA interpolates the concentration at that boundary before computing AUC.
-
-The interpolation method matches the AUC method:
-- `"linear"` → linear interpolation
-- `"lin-log"` → linear interpolation before Tmax, log-linear after Tmax
-- `"lin up/log down"` → log-linear interpolation on the descending phase
-
-```{r}
-# end = 5 falls between observed samples t = 3.82 and t = 5.10 for subject 1
-interp_interval <- data.frame(start = 0, end = 5, auclast = TRUE)
-o_nca_interp <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = interp_interval))
-as.data.frame(o_nca_interp) |>
-  filter(PPTESTCD == "auclast") |>
-  select(start, end, PPTESTCD, PPORRES)
-```
-
 
 ---
 
