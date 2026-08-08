@@ -146,6 +146,44 @@ ggplot(ss_8h, aes(x = time, y = conc)) +
 
 ---
 
+## Multiple doses within an interval
+
+`dose.times` (default `0`) sets the dose time(s) within each interval, and a
+vector places several doses inside one τ: `tau = 24` with
+`dose.times = c(0, 12)` is twice-daily dosing described as a single 24 h
+interval. `dose.amount` applies to **each** administration, so halving it here
+keeps the total daily dose equal to the once-daily regimen above:
+
+```{r}
+ss_bid <- superposition(
+  o_conc_1,
+  tau         = 24,
+  dose.input  = actual_dose,
+  dose.amount = actual_dose / 2,  # half dose per administration
+  dose.times  = c(0, 12),         # doses at 0 h and 12 h in each interval
+  n.tau       = Inf,
+  check.blq   = FALSE
+)
+
+bind_rows(
+  ss_converged |> mutate(regimen = "Once daily, full dose"),
+  ss_bid       |> mutate(regimen = "Twice daily, half dose")
+) |>
+  ggplot(aes(x = time, y = conc, colour = regimen)) +
+  geom_line() + geom_point(size = 2) +
+  labs(title = "Two doses per interval: dose.times = c(0, 12), τ = 24 h",
+       x = "Time within interval (h)", y = "Predicted SS concentration (mg/L)",
+       colour = NULL) +
+  theme_minimal()
+```
+
+At the same total daily dose, splitting the dose lowers Cmax and raises the
+trough. The dose times need not be evenly spaced: `dose.times = c(0, 8)` with
+`tau = 24` describes a staggered morning/evening regimen (doses 8 h apart,
+then a 16 h overnight gap).
+
+---
+
 ## Extracting accumulation ratio
 
 One common definition of the **accumulation ratio (Rac)** is Cmax at steady state divided by Cmax after the first dose (an AUC-based Rac, AUCτ,ss / AUCτ,first, is equally common):

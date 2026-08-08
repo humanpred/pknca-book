@@ -8,7 +8,7 @@ library(dplyr)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-PKNCA does not include a dedicated CDISC submission function. What it does provide is a tidy, long-format result table whose structure maps directly onto the CDISC PP (Pharmacokinetic Parameters) domain. This page documents that mapping and describes how to prepare outputs for regulatory submissions.
+PKNCA does not build a complete submission dataset for you, but it comes close: its tidy, long-format result table maps directly onto the CDISC PP (Pharmacokinetic Parameters) domain, and as of version 0.12.2 `as.data.frame()` can translate parameter codes into CDISC standard codes directly (see the CDISC output format section below). This page documents that mapping and describes how to prepare outputs for regulatory submissions.
 
 ```{r build-result, include=FALSE}
 data("Theoph")
@@ -96,6 +96,22 @@ The result is in tidy long format: one row per subject per parameter per interva
 
 ---
 
+## CDISC output format (≥ 0.12.2)
+
+The long-format extraction above keeps PKNCA's own parameter codes in `PPTESTCD` — `auclast`, `cmax`, `lambda.z`, and so on. For submission datasets, `as.data.frame()` can translate those codes for you: `out_format = "cdisc"` replaces each `PPTESTCD` with its CDISC submission code (`auclast` becomes `AUCLST`, `clast.obs` becomes `CLST`, `lambda.z` becomes `LAMZ`) and inserts a `PPTEST` column carrying the standard parameter label. Route-dependent parameters resolve to the correct code based on the route recorded in the dose data.
+
+```{r cdisc-format}
+as.data.frame(o_nca, out_format = "cdisc") |>
+  select(Subject, PPTESTCD, PPTEST, PPORRES) |>
+  head(8)
+```
+
+When an interval-based parameter is requested (for example `aucint.last`, whose CDISC code `AUCINT` contains "INT"), the CDISC output also gains `PPSTINT` and `PPENINT` columns giving the interval start and end as ISO 8601 durations relative to the last dose time (e.g. `PT0H`, `PT12H`).
+
+Custom parameters registered with `add.interval.col()` can declare their own CDISC codes through its `pptestcd_cdisc` and `pptest_cdisc` arguments; a parameter without a declared code keeps its PKNCA name in the CDISC output. See the [Writing Custom Parameter Functions chapter](custom-parameters.qmd).
+
+---
+
 ## The `exclude` column
 
 The `exclude` column records whether a result was flagged for exclusion and why. When `exclude` is `NA`, the result is valid. When it is a non-`NA` character string, it contains a human-readable exclusion reason.
@@ -177,5 +193,5 @@ Together, `PKNCA.options()`, `sessionInfo()`, and `renv` provide the three layer
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame.PKNCAresults()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

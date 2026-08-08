@@ -369,5 +369,5 @@ ggplot(subj1, aes(x = time, y = conc)) +
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_min.hl.r.squared()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [exclude_nca_span.ratio()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
 :::

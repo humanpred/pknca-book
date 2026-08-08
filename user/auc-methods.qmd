@@ -125,7 +125,7 @@ as.data.frame(o_nca_all_partial) |>
 
 ## Concentration interpolation at interval boundaries
 
-When a requested interval boundary (e.g. `end = 5`) falls between two observed timepoints, PKNCA interpolates the concentration at that boundary before computing AUC.
+When a requested interval boundary (e.g. `end = 5`) falls between two observed timepoints, PKNCA interpolates the concentration at that boundary before computing AUC — handled internally by `interp.extrap.conc()`.
 
 The interpolation method matches the AUC method:
 - `"linear"` → linear interpolation
@@ -391,5 +391,5 @@ as.data.frame(o_nca_cav) |>
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.dose.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.dose.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_max.aucinf.pext()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
 :::

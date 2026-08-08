@@ -2,7 +2,7 @@
 
 [![Render and deploy book](https://github.com/humanpred/pknca-book/actions/workflows/book.yml/badge.svg)](https://github.com/humanpred/pknca-book/actions/workflows/book.yml)
 
-A comprehensive **Quarto book** documenting the [PKNCA](https://github.com/humanpred/pknca) R package (≥ 0.12.2) with runnable examples throughout. Every function, option, and parameter is verified against live PKNCA output.
+A comprehensive **Quarto book** documenting the [PKNCA](https://github.com/humanpred/pknca) R package (≥ 0.12.2) with runnable examples throughout. Every parameter, option, and user-facing function is covered and verified against live PKNCA output; the underlying `pk.calc.*` calculation functions are indexed in the Developer Reference.
 
 **Live book:** https://humanpred.github.io/pknca-book/
 
@@ -43,7 +43,7 @@ open _book/index.html
 | [Dose-aware interpolation](user/dose-aware-interpolation.qmd) | interp.extrap.conc.dose; .dose AUCint variants |
 | [Custom parameters](user/custom-parameters.qmd) | add.interval.col; registering new NCA parameters |
 | [Utility functions](user/utilities.qmd) | geomean; geocv; clean.conc.*; assert_conc_time |
-| [Regulatory & CDISC](user/regulatory.qmd) | PP domain column mapping; exclude → PPEXCLFL; summary() for CSR tables |
+| [Regulatory & CDISC](user/regulatory.qmd) | PP domain column mapping; CDISC output format; exclusion tracking; summary() for CSR tables |
 | [Validation & testing](user/validation.qmd) | testthat suite; version pinning; manual AUClast spot-check |
 
 ### Developer Reference (2 chapters)

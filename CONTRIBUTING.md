@@ -102,7 +102,7 @@ as.data.frame(o_nca) |>
 
 **Known gotchas:**
 
-- **Tobit half-life** — `pk.nca()` does not wire `lloq` through to `pk.calc.half.life()`. Use `pk.calc.half.life()` directly and add a note in the docs.
+- **Tobit half-life** — set `lloq` on `PKNCAconc()`; in PKNCA ≥ 0.12.2 it is passed through to `pk.calc.half.life()` automatically, so the full `pk.nca()` pipeline works with `options = list(hl_method = "tobit")`. (Older versions required calling `pk.calc.half.life()` directly.)
 - **Sparse AUMC** — only set `sparse_aumclast = TRUE`. Explicitly requesting `sparse_auc_se = TRUE` alongside it triggers an internal type error.
 - **`normalize()`** — replaces the original parameters (does not append). To keep both, `bind_rows()` before and after.
 - **New option defaults** — always verify with `PKNCA.options("option_name")` before documenting the default.

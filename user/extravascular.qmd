@@ -172,7 +172,7 @@ as.data.frame(o_nca_auc) |>
 
 ### Half-life and λz
 
-For EV, the terminal phase reflects elimination (not absorption) once absorption is complete. The usual λz quality controls — enough points in the regression, adjusted R², and span ratio — apply regardless of route; see the [Half-Life chapter](halflife.qmd) for point selection and quality thresholds.
+For EV, the terminal phase reflects elimination (not absorption) once absorption is complete. One extravascular-specific caveat: with slow absorption the terminal slope can reflect absorption rather than elimination (flip-flop kinetics), in which case the apparent half-life is an absorption half-life. The usual λz quality controls — enough points in the regression, adjusted R², and span ratio — apply regardless of route; see the [Half-Life chapter](halflife.qmd) for point selection and quality thresholds.
 
 ```{r}
 hl_params <- data.frame(
@@ -667,5 +667,5 @@ sort(names(interval_cols)[names(interval_cols) %in% ev_relevant])
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.f()](https://humanpred.github.io/pknca/reference/pk.calc.f.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.f()](https://humanpred.github.io/pknca/reference/pk.calc.f.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html)
 :::

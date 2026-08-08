@@ -261,6 +261,52 @@ as.data.frame(res_custom) |>
 
 ---
 
+### Allowing partial units (≥ 0.12.0)
+
+`pknca_units_table()` always returns a complete table, but a hand-edited or
+reused units table can end up missing entries for some of the parameters an
+analysis requests. By default PKNCA treats that as an error when `pk.nca()`
+runs, so no partially-unitless results are produced by accident. Here the
+`half.life` and `tmax` rows are removed from the table built above:
+
+```{r}
+u_partial <- u |> filter(!(PPTESTCD %in% c("half.life", "tmax")))
+
+o_data_partial <- PKNCAdata(o_conc2, o_dose2, units = u_partial)
+
+# The missing entries are an error when the calculation runs
+tryCatch(
+  pk.nca(o_data_partial),
+  error = function(e) cat("Error:", conditionMessage(e), "\n")
+)
+```
+
+Setting `allow_partial_missing_units = TRUE` converts that error to a warning
+so the run completes. It can be set per-analysis through the `options` argument
+of `PKNCAdata()` (as below) or globally with
+`PKNCA.options(allow_partial_missing_units = TRUE)`:
+
+```{r}
+o_data_partial_ok <- PKNCAdata(
+  o_conc2, o_dose2, units = u_partial,
+  options = list(allow_partial_missing_units = TRUE)
+)
+res_partial <- pk.nca(o_data_partial_ok)
+
+as.data.frame(res_partial) |>
+  filter(Subject == "1",
+                PPTESTCD %in% c("cmax", "tmax", "half.life")) |>
+  select(PPTESTCD, PPORRES, PPORRESU)
+```
+
+The warning above names the parameters that lack units; it is expected here and
+should be reviewed, not silenced. The affected parameters (`tmax`,
+`half.life`) are still calculated but reported without a unit — their
+`PPORRESU` is `NA` — while parameters present in the table (`cmax`) keep
+theirs.
+
+---
+
 ## Summary
 
 | Goal | How |
@@ -278,5 +324,5 @@ as.data.frame(res_custom) |>
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

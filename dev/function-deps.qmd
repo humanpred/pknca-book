@@ -111,6 +111,33 @@ dep_table <- lapply(names(cols), function(param) {
 knitr::kable(dep_table, col.names = c("Parameter", "Depends on"))
 ```
 
+## Parameter-to-function mapping
+
+Every interval parameter is computed by a function registered alongside it — usually named `pk.calc.*()` — and the registry entry returned by `get.interval.cols()` records that function name in its `$FUN` field, together with the parameter's unit type and description. Where `$FUN` is `NA`, the parameter has no dedicated function: it is either produced as part of another function's output (for example, `r.squared` and `lambda.z.time.first` are returned by the same half-life fit that produces `half.life`) or it is an interval boundary (`start`, `end`).
+
+The table below is the complete index of the calculation API: every registered parameter, the function that computes it, its unit type, and its description.
+
+```{r fun-map}
+cols <- get.interval.cols()
+
+fun_map <- data.frame(
+  parameter = names(cols),
+  # $FUN is a character function name, or logical NA when the parameter has no
+  # dedicated function; as.character() coerces both to character
+  fun       = vapply(cols, function(x) as.character(x$FUN), character(1)),
+  unit_type = vapply(cols, function(x) x$unit_type, character(1)),
+  desc      = vapply(cols, function(x) x$desc, character(1)),
+  stringsAsFactors = FALSE
+) |>
+  arrange(parameter)
+
+knitr::kable(
+  fun_map,
+  row.names = FALSE,
+  col.names = c("Parameter", "Function", "Unit type", "Description")
+)
+```
+
 ## Dependency resolution
 
 When you call `pk.nca()`, PKNCA sorts the registry internally with `PKNCA:::sort_interval_cols()` (unexported) to produce a topologically sorted execution order — parameters with no dependencies run first, then those that depend on already-computed values.
@@ -137,9 +164,17 @@ all_deps |>
   )
 ```
 
+## Querying dependents: `get.parameter.deps()`
+
+`get.parameter.deps()` is the reverse lookup: given a parameter name, it returns that parameter and every parameter downstream of it — the ones whose results would be affected if you excluded or modified it.
+
+```{r parameter-deps}
+get.parameter.deps("auclast")
+```
+
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html)
+**pkgdown reference:** [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html)
 :::

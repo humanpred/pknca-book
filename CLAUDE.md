@@ -5,7 +5,7 @@ This file provides guidance to Claude Code when working in this repository.
 ## What This Is
 
 A Quarto book documenting the [PKNCA](https://github.com/humanpred/pknca) R package (≥ 0.12.2).
-Every function, option, and parameter is covered with runnable examples verified against live PKNCA output.
+Every parameter, option, and user-facing function is covered with runnable examples verified against live PKNCA output; the `pk.calc.*` calculation functions are indexed in the Developer Reference.
 
 **Book repo:** https://github.com/humanpred/pknca-book  
 **Rendered book:** https://humanpred.github.io/pknca-book/  
