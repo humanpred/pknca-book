@@ -28,7 +28,7 @@ flowchart TD
 
 ## Step-by-step: minimal example
 
-Below is the complete workflow with the built-in `Theoph` dataset (oral theophylline, 12 subjects).
+Below is the complete workflow with the built-in `Theoph` dataset (oral theophylline, 12 subjects). The package vignette [Computing NCA Parameters for Theophylline](https://humanpred.github.io/pknca/articles/v02-example-theophylline.html) works the same dataset.
 
 ### Step 1 — Prepare your data
 
@@ -140,7 +140,7 @@ as.data.frame(o_nca2)
 
 ## Controlling calculations with PKNCA.options()
 
-`PKNCA.options()` is the global settings registry. Call with no arguments to see all current settings.
+`PKNCA.options()` is the global settings registry. Call with no arguments to see all current settings. See also the vignette [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
 
 ```{r}
 PKNCA.options()
@@ -154,6 +154,8 @@ All options and what they control:
 |---|---|---|
 | `auc.method` | `"lin up/log down"` | Integration rule: `"linear"`, `"lin-log"`, or `"lin up/log down"` |
 
+Each rule is derived in [AUC integration methods](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
+
 **Half-life / λz**
 
 | Option | Default | Effect |
@@ -166,6 +168,8 @@ All options and what they control:
 | `hl_method` | `"log-linear"` | `"log-linear"` (OLS) or `"tobit"` (censored-likelihood, ≥ 0.12.2) |
 | `tobit_n_points_penalty` | `0` | Penalty per extra terminal point in Tobit log-likelihood; positive values favor shorter windows (≥ 0.12.2) |
 | `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for Tobit optimization (≥ 0.12.2) |
+
+Details: [Half-Life Calculation](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html) and [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html).
 
 **AUCinf extrapolation**
 
@@ -215,7 +219,7 @@ o_data_strict <- PKNCAdata(
 
 ## Extracting and plotting results
 
-`as.data.frame()` returns one row per parameter per interval — a tidy shape ready for dplyr and ggplot2.
+`as.data.frame()` returns one row per parameter per interval — a tidy shape ready for dplyr and ggplot2. More result-handling patterns: [Post-Processing](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
 
 ```{r}
 results_df <- as.data.frame(o_nca)

@@ -39,6 +39,8 @@ flowchart TD
     G --> H["Return λz, half.life, R², n.points"]
 ```
 
+The algorithm is described step-by-step in the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
+
 ---
 
 ## Basic half-life output
@@ -162,6 +164,8 @@ as.data.frame(o_nca_tmax) |>
 ---
 
 ## Manually controlling which points are used
+
+See also [manual point selection](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html#manual-point-selection) in the Half-Life Calculation vignette.
 
 ### Excluding specific points (`exclude_half.life`)
 
@@ -311,7 +315,7 @@ Tobit adds new output columns to the result:
 | `tobit_n_points_penalty` | `0` | Penalty per extra terminal point in the log-likelihood; positive values favor shorter windows |
 | `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for the Tobit optimization |
 
-See `vignette("v06-half-life-calculation-tobit", package = "PKNCA")` for a detailed simulation comparison between OLS and Tobit estimates.
+See the vignette [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html) for a detailed simulation comparison between OLS and Tobit estimates.
 
 ---
 

@@ -10,7 +10,7 @@ pknca_ver <- as.character(packageVersion("PKNCA"))
 This book was built against **PKNCA `r pknca_ver`**. Examples are verified against that version. For the function reference, see the [pkgdown site](https://humanpred.github.io/pknca/reference/index.html).
 :::
 
-**PKNCA** is an R package for automated noncompartmental analysis (NCA). It calculates PK parameters (AUC, Cmax, half-life, clearance, volume, and many more) from concentration-time data, supports IV and extravascular routes, urine excretion, sparse sampling, multiple-dose designs, and CDISC-aligned output. This book documents PKNCA ≥ 0.12.2 with runnable examples throughout.
+**PKNCA** is an R package for automated noncompartmental analysis (NCA). It calculates PK parameters (AUC, Cmax, half-life, clearance, volume, and many more) from concentration-time data, supports IV and extravascular routes, urine excretion, sparse sampling, multiple-dose designs, and CDISC-aligned output. This book documents PKNCA ≥ 0.12.2 with runnable examples throughout. For the package authors' own orientation material, see the vignettes [Introduction to PKNCA and Usage Instructions](https://humanpred.github.io/pknca/articles/v01-introduction-and-usage.html) and [PKNCA – an R package for noncompartmental analysis](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
 
 ## What is NCA?
 
@@ -42,6 +42,8 @@ flowchart LR
 | `PKNCAdose` | Dose amount, time, and route |
 | `PKNCAdata` | Parameters and analysis intervals |
 | `PKNCAresults` | Computed NCA parameters, units, exclusion flags |
+
+The vignette [Computing NCA Parameters for Theophylline](https://humanpred.github.io/pknca/articles/v02-example-theophylline.html) runs this exact pipeline end-to-end.
 
 ## Route-specific parameters
 

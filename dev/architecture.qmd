@@ -109,7 +109,7 @@ add.interval.col(
 str(get.interval.cols()[["demo.ratio"]])
 ```
 
-For the full walkthrough — parameters computed from raw concentration-time data, multi-output functions, and custom summary statistics — see the [Writing Custom Parameters chapter](../user/custom-parameters.qmd).
+For the full walkthrough — parameters computed from raw concentration-time data, multi-output functions, and custom summary statistics — see the [Writing Custom Parameters chapter](../user/custom-parameters.qmd) and the package vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
 
 ## Options system
 
@@ -143,6 +143,8 @@ Sparse PK (one or two samples per subject, common in preclinical or pediatric st
 - Mean concentration-time profile is computed, then NCA is run on that profile
 - Supported parameters are flagged with `sparse = TRUE` in their `add.interval.col()` registration
 
+For the full workflow, see the [Sparse NCA chapter](../user/sparse.qmd) and the vignette [Sparse NCA Calculations](https://humanpred.github.io/pknca/articles/v04-sparse.html).
+
 ## Key functions
 
 All of these are exported except where marked internal:
@@ -159,7 +161,7 @@ All of these are exported except where marked internal:
 
 ---
 
-> This overview covers the surface. The business rules (`002-pk.business.rules.R`) and the validation framework (`v60-PKNCA-validation.Rmd`) in the PKNCA sources are richer topics worth exploring further.
+> This overview covers the surface. The business rules (`002-pk.business.rules.R`) and the validation framework ([`v60-PKNCA-validation.Rmd`](https://humanpred.github.io/pknca/articles/v60-PKNCA-validation.html)) in the PKNCA sources are richer topics worth exploring further.
 
 
 ---

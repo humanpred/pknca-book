@@ -11,7 +11,7 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 ## The EV dataset: Theophylline
 
-We use `datasets::Theoph` — oral theophylline (bronchodilator) in 12 subjects, sampled over 25 hours after a single oral dose.
+We use `datasets::Theoph` — oral theophylline (bronchodilator) in 12 subjects, sampled over 25 hours after a single oral dose. The package authors' worked analysis of this dataset is in the vignette [Computing NCA Parameters for Theophylline](https://humanpred.github.io/pknca/articles/v02-example-theophylline.html).
 
 ```{r}
 head(Theoph)
@@ -137,7 +137,7 @@ identical(
 )
 ```
 
-The option has no effect here because no Theoph subject reaches its maximum concentration at two timepoints — `first.tmax` only matters when the maximum is an exact tie. Tie-breaking for Tmin is controlled by the `first.tmin` option (≥ 0.12.2; default `TRUE` = return first occurrence).
+The option has no effect here because no Theoph subject reaches its maximum concentration at two timepoints — `first.tmax` only matters when the maximum is an exact tie. Tie-breaking for Tmin is controlled by the `first.tmin` option (≥ 0.12.2; default `TRUE` = return first occurrence). All calculation options are cataloged in [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
 
 ### AUC variants
 
@@ -172,7 +172,7 @@ as.data.frame(o_nca_auc) |>
 
 ### Half-life and λz
 
-For EV, the terminal phase reflects elimination (not absorption) once absorption is complete. One extravascular-specific caveat: with slow absorption the terminal slope can reflect absorption rather than elimination (flip-flop kinetics), in which case the apparent half-life is an absorption half-life. The usual λz quality controls — enough points in the regression, adjusted R², and span ratio — apply regardless of route; see the [Half-Life chapter](halflife.qmd) for point selection and quality thresholds.
+For EV, the terminal phase reflects elimination (not absorption) once absorption is complete. One extravascular-specific caveat: with slow absorption the terminal slope can reflect absorption rather than elimination (flip-flop kinetics), in which case the apparent half-life is an absorption half-life. The usual λz quality controls — enough points in the regression, adjusted R², and span ratio — apply regardless of route; see the [Half-Life chapter](halflife.qmd) for point selection and quality thresholds. The λz point-selection algorithm and quality metrics are detailed in the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
 
 ```{r}
 hl_params <- data.frame(
@@ -347,7 +347,7 @@ as.data.frame(o_nca_tau) |> select(subject, PPTESTCD, PPORRES)
 
 ## Imputation of missing predose concentrations
 
-In some studies, the predose sample is missing or was not collected. PKNCA can impute a time-0 concentration before calculations.
+In some studies, the predose sample is missing or was not collected. PKNCA can impute a time-0 concentration before calculations. Full method descriptions and per-interval examples are in the [Data Imputation vignette](https://humanpred.github.io/pknca/articles/v08-data-imputation.html).
 
 Available built-in methods (comma-separate to chain them):
 
@@ -454,7 +454,7 @@ cat(sprintf("AUC ratio EV/IV: %.1f — illustrative only, different drugs\n",
 
 ## Multiple-dose / steady-state
 
-For multiple-dose data, request steady-state parameters over a tau interval — see the [Multiple-Dose chapter](multiple-dose.qmd) for the full workflow. Here the interval syntax is demonstrated on the single-dose Theoph data:
+For multiple-dose data, request steady-state parameters over a tau interval — see the [Multiple-Dose chapter](multiple-dose.qmd) for the full workflow. To simulate steady state from single-dose data, see [Superposition of Pharmacokinetic Data](https://humanpred.github.io/pknca/articles/v20-superposition.html); to estimate when steady state is reached, see [Noncompartmental evaluation of time to steady-state](https://humanpred.github.io/pknca/articles/v22-time-to-steady-state.html). Here the interval syntax is demonstrated on the single-dose Theoph data:
 
 ```{r}
 ss_intervals <- data.frame(
@@ -564,11 +564,13 @@ o_data_blq <- PKNCAdata(
 
 On Theoph the per-phase rule reproduces the default results (the predose zeros sit before Tmax and are kept), while the global `"drop"` is a trap for intervals starting at the dose time: it removes the predose zeros too, so AUCs that start at 0 begin before the first remaining measurement and return `NA` with a warning.
 
+To use BLQ observations in half-life estimation rather than dropping them, see [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html).
+
 ---
 
 ## AUC integration methods
 
-The default integration method is **lin up/log down** (linear interpolation on the ascending phase, log-linear on the descending phase). The alternatives, `"linear"` and `"lin-log"`, are selected per-analysis with the `auc.method` option. See the [AUC chapter](auc-methods.qmd) for how each method computes the trapezoids and when to prefer which.
+The default integration method is **lin up/log down** (linear interpolation on the ascending phase, log-linear on the descending phase). The alternatives, `"linear"` and `"lin-log"`, are selected per-analysis with the `auc.method` option. See the [AUC chapter](auc-methods.qmd) for how each method computes the trapezoids and when to prefer which. Formal definitions of each rule are in the [AUC integration methods vignette](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
 
 ```{r}
 # Switch to the linear trapezoidal method
@@ -584,7 +586,7 @@ as.data.frame(pk.nca(o_data_lin)) |>
 
 ## Units
 
-Assign units to get automatic unit propagation through derived parameters. See the [Units chapter](units.qmd) for the full units system, including unit conversion and per-parameter overrides.
+Assign units to get automatic unit propagation through derived parameters. See the [Units chapter](units.qmd) for the full units system, including unit conversion and per-parameter overrides. See also [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html) for the full units workflow.
 
 ```{r}
 units_table <- pknca_units_table(
@@ -610,7 +612,7 @@ as.data.frame(o_nca_u) |>
 
 ## Summary with custom statistics
 
-`summary()` produces a study-report-style table of summary statistics per parameter, and `PKNCA.set.summary()` customizes the statistics reported for any parameter — see [Post-processing](postprocessing.qmd) for the full summary workflow.
+`summary()` produces a study-report-style table of summary statistics per parameter, and `PKNCA.set.summary()` customizes the statistics reported for any parameter — see [Post-processing](postprocessing.qmd) for the full summary workflow. More summary and exclusion workflows are in the [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
 
 ```{r}
 PKNCA.set.summary(

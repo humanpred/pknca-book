@@ -8,7 +8,7 @@ library(dplyr)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-PKNCA does not build a complete submission dataset for you, but it comes close: its tidy, long-format result table maps directly onto the CDISC PP (Pharmacokinetic Parameters) domain, and as of version 0.12.2 `as.data.frame()` can translate parameter codes into CDISC standard codes directly (see the CDISC output format section below). This page documents that mapping and describes how to prepare outputs for regulatory submissions.
+PKNCA does not build a complete submission dataset for you, but it comes close: its tidy, long-format result table maps directly onto the CDISC PP (Pharmacokinetic Parameters) domain, and as of version 0.12.2 `as.data.frame()` can translate parameter codes into CDISC standard codes directly (see the CDISC output format section below). This page documents that mapping and describes how to prepare outputs for regulatory submissions. For PKNCA's regulator-facing overview, see [PKNCA – an R package for noncompartmental analysis](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
 
 ```{r build-result, include=FALSE}
 data("Theoph")
@@ -45,7 +45,7 @@ The columns map to CDISC PP variables as follows:
 | `exclude`    | `PPSTAT` / `PPREASND` (or a supplemental qualifier) | Non-`NA` string gives the exclusion reason |
 | Grouping columns (`Subject`, etc.) | `USUBJID`, `PPCAT` | Pass through unchanged |
 
-Units (`PPORRESU`, `PPSTRESU`) are available when you configure a units table via `pknca_units_table()` and pass it to `PKNCAdata()`. Without a units table, `PPORRES` carries the raw numeric value and unit derivation must be done externally.
+Units (`PPORRESU`, `PPSTRESU`) are available when you configure a units table via `pknca_units_table()` and pass it to `PKNCAdata()`. Without a units table, `PPORRES` carries the raw numeric value and unit derivation must be done externally. For the full units workflow, see the [Units chapter](units.qmd) and [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html).
 
 ```{r result-head}
 head(df, 10)
@@ -124,7 +124,7 @@ table(is.na(df$exclude))
 df |> filter(!is.na(exclude)) |> head()
 ```
 
-Exclusions are set programmatically via the `exclude_nca_*` family of functions (e.g. `exclude_nca_max.aucinf.pext()`, `exclude_nca_min.hl.r.squared()`), or manually via `exclude()`. The rule functions supply their own exclusion reason text (e.g. `exclude_nca_min.hl.r.squared(0.9)` records `r.squared < 0.9`), so no `reason=` argument is needed. For regulatory submissions, include all rows in the PP domain — both included and excluded. Exclusion is typically represented via `PPSTAT`/`PPREASND` (status and reason not done) or a supplemental qualifier; PKNCA's `exclude` column provides the source text for whichever convention your submission uses.
+Exclusions are set programmatically via the `exclude_nca_*` family of functions (e.g. `exclude_nca_max.aucinf.pext()`, `exclude_nca_min.hl.r.squared()`), or manually via `exclude()`. The rule functions supply their own exclusion reason text (e.g. `exclude_nca_min.hl.r.squared(0.9)` records `r.squared < 0.9`), so no `reason=` argument is needed. For regulatory submissions, include all rows in the PP domain — both included and excluded. Exclusion is typically represented via `PPSTAT`/`PPREASND` (status and reason not done) or a supplemental qualifier; PKNCA's `exclude` column provides the source text for whichever convention your submission uses. Exclusion workflows are covered in the [Post-Processing chapter](postprocessing.qmd) and [vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
 
 ```{r exclude-nca-example}
 # Apply standard exclusion rules and inspect excluded rows

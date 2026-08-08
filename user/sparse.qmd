@@ -19,7 +19,7 @@ Sparse sampling is common in:
 - **Pediatric or special population studies** — where blood volume limits the number of draws per patient
 - **Large observational studies** — with opportunistic sampling
 
-PKNCA handles sparse PK by computing a **mean concentration-time profile** across all subjects at each timepoint, then running NCA on that mean profile, along with a standard error estimate from the Nedelman & Jia (1998) method.
+PKNCA handles sparse PK by computing a **mean concentration-time profile** across all subjects at each timepoint, then running NCA on that mean profile, along with a standard error estimate from the Nedelman & Jia (1998) method. See also the package vignette [Sparse NCA Calculations](https://humanpred.github.io/pknca/articles/v04-sparse.html).
 
 ---
 
@@ -113,7 +113,7 @@ PKNCA returns three values for sparse AUC:
 
 1. At each timepoint, compute the **mean concentration** across subjects (pooling all subjects sampled at that time)
 2. Apply the **linear** trapezoidal rule to the mean profile to get AUClast (sparse AUC uses linear weights — see `sparse_auc_weight_linear` — as required by the Nedelman–Jia variance)
-3. Estimate **variance** using the Nedelman & Jia (1998) formula, accounting for the covariance between AUC trapezoids via the Holder (2001) method
+3. Estimate **variance** using the Nedelman & Jia (1998) formula, accounting for the covariance between AUC trapezoids via the Holder (2001) method (full citations are in the vignette)
 4. Return AUClast ± SE and degrees of freedom
 
 ```{r}
@@ -141,6 +141,8 @@ The second method is conservative: timepoints with majority-BLQ results don't pu
 ---
 
 ## Serial sacrifice vs. repeated sampling
+
+How subjects are grouped for sparse calculations is described in [the vignette's grouping section](https://humanpred.github.io/pknca/articles/v04-sparse.html#how-subjects-are-grouped-for-sparse-calculations).
 
 ```{r}
 # Serial sacrifice: each subject contributes EXACTLY 1 sample

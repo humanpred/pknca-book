@@ -31,6 +31,8 @@ PKNCA offers four families of AUC — AUClast, AUCall, AUCinf (in observed and p
 | `aucinf.pred` | Extrapolated to ∞ (using predicted Clast from λz fit) | — | When Clast is noisy |
 | `aucint.*` | Any user-defined time window | — | Partial AUC, bioequivalence |
 
+For a worked example computing these AUC flavors on a full dataset, see the [AUC Calculation with PKNCA vignette](https://humanpred.github.io/pknca/articles/v05-auc-calculation-with-PKNCA.html).
+
 ### AUClast vs AUCall
 
 Subject 1's profile ends on a measurable sample (t = 24.37), so there is no BLQ tail and `auclast` equals `aucall` on the raw data. To show the difference, this demo appends a synthetic BLQ tail (concentrations reported as 0 at t = 26 and 28) to a **copy** of the data:
@@ -98,7 +100,7 @@ as.data.frame(o_nca_partial) |>
 
 > **Note:** `aucint.inf.pred` requires that `lambda.z` has been estimated (i.e., that the terminal slope is calculable from the data window).
 
-The `.dose` variants use **dose-aware interpolation** (`interp.extrap.conc.dose()`) at the interval start and end. This matters when the interval boundary coincides with a dose time — the `.dose` variant correctly handles the before/after concentration jump.
+The `.dose` variants use **dose-aware interpolation** (`interp.extrap.conc.dose()`) at the interval start and end. This matters when the interval boundary coincides with a dose time — the `.dose` variant correctly handles the before/after concentration jump. The full decision rules are in the [dose-aware interpolation and extrapolation vignette](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
 
 ```{r}
 # All partial AUC variants over a single window
@@ -189,7 +191,7 @@ The 20% default comes from the `max.aucinf.pext` option — but the option's onl
 
 ## Integration methods
 
-The integration method controls how the area of each trapezoid is computed between consecutive timepoints.
+The integration method controls how the area of each trapezoid is computed between consecutive timepoints. Each rule, including the zero-concentration fallbacks, is derived in the [AUC integration methods vignette](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
 
 ```{r}
 # Numeric comparison of the three methods on one subject

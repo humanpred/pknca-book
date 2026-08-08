@@ -209,9 +209,9 @@ interp.extrap.conc.dose(
 
 ## How PKNCA uses `interp.extrap.conc.dose()` internally
 
-PKNCA calls this function automatically whenever an interval boundary (the `start` or `end` of an interval in your intervals data frame) falls at a dose time. You normally never call it directly.
+PKNCA calls this function automatically whenever an interval boundary (the `start` or `end` of an interval in your intervals data frame) falls at a dose time — see [Selection of Calculation Intervals](https://humanpred.github.io/pknca/articles/v03-selection-of-calculation-intervals.html) for how boundaries are chosen. You normally never call it directly.
 
-Understanding its behavior helps diagnose unusual NCA results when dosing and sampling times coincide — for example, when an interval boundary such as `end = tau` coincides with the next dose (the trough sample time).
+Understanding its behavior helps diagnose unusual NCA results when dosing and sampling times coincide — for example, when an interval boundary such as `end = tau` coincides with the next dose (the trough sample time). Every combination of dose events and observations, and the method used for each, is tabulated in the [complete methods table](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html#appendix-complete-methods-table) of the dose-aware interpolation vignette.
 
 ---
 

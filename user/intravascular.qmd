@@ -80,6 +80,8 @@ as.data.frame(o_nca) |>
   arrange(Subject, PPTESTCD)
 ```
 
+Imputation methods, including `start_conc0`, are described in the [Data Imputation vignette](https://humanpred.github.io/pknca/articles/v08-data-imputation.html).
+
 ---
 
 ## Parameter reference
@@ -161,7 +163,7 @@ as.data.frame(o_nca_c0) |>
 | `aucinf.pred` | AUC extrapolated to ∞, using predicted Clast from λz fit |
 | `aucpext.obs` | % of AUCinf that is extrapolated (quality check) |
 
-All of these are computed with the current integration method (default **lin up/log down**) — see the [AUC chapter](auc-methods.qmd) for the available methods and how to choose one.
+All of these are computed with the current integration method (default **lin up/log down**) — see the [AUC chapter](auc-methods.qmd) for the available methods and how to choose one. AUC families are covered in [AUC Calculation with PKNCA](https://humanpred.github.io/pknca/articles/v05-auc-calculation-with-PKNCA.html).
 
 ```{r}
 auc_params <- data.frame(
@@ -227,6 +229,8 @@ as.data.frame(o_nca_strict) |>
   select(Subject, PPTESTCD, PPORRES) |>
   arrange(Subject, PPTESTCD)
 ```
+
+The λz point-selection algorithm and its quality criteria are detailed in the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
 
 **Excluding specific points from λz:**
 
@@ -450,7 +454,7 @@ o_dose_inf <- PKNCAdose(
 
 ### Infusion-specific parameter: `ceoi`
 
-`ceoi` is the concentration at the **end of infusion** — for an infusion, `ceoi` plays the role that Cmax plays for extravascular dosing. PKNCA interpolates it from the surrounding observed timepoints using the current AUC method.
+`ceoi` is the concentration at the **end of infusion** — for an infusion, `ceoi` plays the role that Cmax plays for extravascular dosing. PKNCA interpolates it from the surrounding observed timepoints using the current AUC method. Interpolation rules are documented in the [dose-aware interpolation vignette](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
 
 ```{r}
 inf_intervals <- data.frame(
@@ -509,11 +513,13 @@ as.data.frame(o_nca_partial) |>
   arrange(Subject)
 ```
 
+Interval semantics are explained in [Selection of Calculation Intervals](https://humanpred.github.io/pknca/articles/v03-selection-of-calculation-intervals.html).
+
 ---
 
 ## Units
 
-Assign units to get automatic unit propagation through derived parameters:
+Assign units to get automatic unit propagation through derived parameters. See [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html) for the full units workflow.
 
 ```{r}
 units_table <- pknca_units_table(
@@ -577,6 +583,8 @@ PKNCA.set.summary(
 
 summary(o_nca)
 ```
+
+Summary customization and results exclusion are covered in the [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
 
 ---
 

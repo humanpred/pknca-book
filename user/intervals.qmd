@@ -9,7 +9,7 @@ library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-Intervals tell PKNCA *when* to calculate and *what* to calculate. Every calculated parameter value comes from exactly one interval row, and each row is independent of all others.
+Intervals tell PKNCA *when* to calculate and *what* to calculate. Every calculated parameter value comes from exactly one interval row, and each row is independent of all others. See also the package vignette [Selection of Calculation Intervals](https://humanpred.github.io/pknca/articles/v03-selection-of-calculation-intervals.html).
 
 ---
 
@@ -105,7 +105,7 @@ The two default rows are:
 - **Row 1** (`end = 24`): calculates `auclast` only — the workhorse for most single-dose studies.
 - **Row 2** (`end = Inf`): calculates `cmax`, `tmax`, `half.life`, and `aucinf.obs`.
 
-These defaults are suitable for a single-dose extravascular study with at least 24 hours of sampling. For any other design (multiple dose, IV, urine, etc.) you should supply explicit intervals.
+These defaults are suitable for a single-dose extravascular study with at least 24 hours of sampling. For any other design (multiple dose, IV, urine, etc.) you should supply explicit intervals. To change the default, set `single.dose.aucs` — see [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
 
 ```{r use-default}
 o_dose <- PKNCAdose(
@@ -224,6 +224,8 @@ Parameters fall into broad families:
 - **Sparse sampling** — `sparse_auclast`, `sparse_auc_se`, `sparse_auc_df`
 - **IV-specific** — `aucivlast`, `aucivpbext*`, `aucivinf.*`
 - **Dose-normalized** — `auclast.dn`, `cmax.dn`, and other `*.dn` variants
+
+If a parameter you need is not in the catalog, you can add it — see the [Writing Custom Parameter Functions chapter](custom-parameters.qmd) and the vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
 
 ---
 

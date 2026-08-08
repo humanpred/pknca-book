@@ -79,7 +79,7 @@ interp.extrap.conc(conc = conc_ex, time = time_ex, time.out = 12,
                    lambda.z = hl_ex$lambda.z)
 ```
 
-The method (linear vs log-linear) follows the `auc.method` setting. Extrapolation beyond Tlast requires supplying `lambda.z` (the terminal slope) — the function never estimates λz itself, and without `lambda.z` the result is `NA`. The example above estimates it with `pk.calc.half.life()`, covered next.
+The method (linear vs log-linear) follows the `auc.method` setting. Extrapolation beyond Tlast requires supplying `lambda.z` (the terminal slope) — the function never estimates λz itself, and without `lambda.z` the result is `NA`. The example above estimates it with `pk.calc.half.life()`, covered next. For interpolation around dose events, see the [Dose-Aware Interpolation chapter](dose-aware-interpolation.qmd) and the vignette [Methods for Dose-Aware Interpolation and Extrapolation](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
 
 ---
 
@@ -125,7 +125,7 @@ Other direct AUC functions:
 | `pk.calc.auc.inf.obs()` | AUC extrapolated to ∞ (observed Clast) |
 | `pk.calc.auc.inf.pred()` | AUC extrapolated to ∞ (predicted Clast) |
 
-These are the building blocks behind every AUC parameter in the registry.
+These are the building blocks behind every AUC parameter in the registry. Integration methods are compared in [AUC integration methods](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
 
 ---
 
@@ -224,7 +224,7 @@ get.parameter.deps("half.life")
 PKNCA.options()
 ```
 
-`PKNCA.options.describe()` returns the description of a single option; see the [Workflow Overview](workflow.qmd) page for the full option reference table.
+`PKNCA.options.describe()` returns the description of a single option; see the [Workflow Overview](workflow.qmd) page for the full option reference table, and the vignette [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
 
 ```{r}
 PKNCA.options.describe("auc.method")

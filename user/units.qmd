@@ -22,7 +22,8 @@ Tabulation Model) PP (PK Parameters) domain:
 | `PPSTRES` | Result expressed in the standardized unit |
 
 This makes the output submission-ready and prevents silent unit mismatches when
-combining results from multiple studies or analytes.
+combining results from multiple studies or analytes. See also the package
+vignette [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html).
 
 ---
 
@@ -223,7 +224,8 @@ hold the converted value and unit.
 
 For conversions PKNCA cannot derive automatically (e.g. mass ↔ molar, or a
 non-standard reporting preference), pass a `conversions` data frame to
-`pknca_units_table()`.
+`pknca_units_table()`. For a molar-conversion example and per-analyte unit
+tables, see [the vignette's analyte section](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html#how-do-i-add-different-unit-conversions-for-different-analytes).
 
 ### Required columns
 

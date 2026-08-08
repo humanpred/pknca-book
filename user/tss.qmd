@@ -13,7 +13,7 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 **Time to steady state (TSS)** is the dosing occasion (or clock time) at which pre-dose trough concentrations are no longer meaningfully rising. PKNCA provides two NCA-based methods for estimating TSS from trough concentration data collected across multiple dose occasions. Once at steady state, compute interval parameters with [Multiple-Dose and Steady-State](multiple-dose.qmd); to predict the steady-state profile from single-dose data, see [Superposition](superposition.qmd).
 
-Both methods work on trough concentrations (Ctrough = pre-dose concentration; the end of one dosing interval is the pre-dose sample of the next) collected at successive dose numbers, not full PK profiles.
+Both methods work on trough concentrations (Ctrough = pre-dose concentration; the end of one dosing interval is the pre-dose sample of the next) collected at successive dose numbers, not full PK profiles. See also the package vignette [Noncompartmental evaluation of time to steady-state](https://humanpred.github.io/pknca/articles/v22-time-to-steady-state.html).
 
 ---
 

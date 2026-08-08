@@ -77,7 +77,7 @@ d_dose <- data.frame(
 
 ## Setting up urine PKNCAconc
 
-Pass the urine volume column name via the `volume` argument; the unit arguments (`concu`, `amountu`, `timeu`, …) are optional and set units. The formula uses the same `conc ~ time | Subject` structure.
+Pass the urine volume column name via the `volume` argument; the unit arguments (`concu`, `amountu`, `timeu`, …) are optional and set units. For assigning and converting units, see [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html). The formula uses the same `conc ~ time | Subject` structure.
 
 ```{r}
 o_conc_plasma <- PKNCAconc(d_plasma, conc ~ time | Subject)

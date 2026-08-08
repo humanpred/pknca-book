@@ -17,6 +17,8 @@ book:
     right:
       - text: "Function Reference"
         href: https://humanpred.github.io/pknca/reference/index.html
+      - text: "Vignettes"
+        href: https://humanpred.github.io/pknca/articles/index.html
       - text: "pkgdown site"
         href: https://humanpred.github.io/pknca/
   chapters:

@@ -20,7 +20,7 @@ After `pk.nca()` you may need to:
 5. **Report** with the `business.*` summary helper functions
 6. **Inspect** which concentrations each λz regression used
 
-All of this operates on the `PKNCAresults` object without rerunning the analysis.
+All of this operates on the `PKNCAresults` object without rerunning the analysis. The package's own [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html) walks the same workflow.
 
 ---
 
@@ -329,7 +329,7 @@ summary(o_nca)
 
 ## Inspecting the terminal regression window
 
-`get_halflife_points()` returns a logical vector aligned with the original concentration data — `TRUE` if that observation was used in the λz regression, `FALSE` if it was available but excluded, `NA` if half-life was not computed for that interval. In PKNCA ≥ 0.12.2 it also accepts a `PKNCAdata` object directly and handles `start ≠ 0` intervals correctly.
+`get_halflife_points()` returns a logical vector aligned with the original concentration data — `TRUE` if that observation was used in the λz regression, `FALSE` if it was available but excluded, `NA` if half-life was not computed for that interval. In PKNCA ≥ 0.12.2 it also accepts a `PKNCAdata` object directly and handles `start ≠ 0` intervals correctly. For how PKNCA selects the regression points, see the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
 
 Because the example analysis requested `half.life`, `o_nca` already carries the λz fits:
 

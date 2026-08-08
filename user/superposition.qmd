@@ -13,7 +13,7 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 **Superposition** predicts steady-state concentration-time profiles from a single-dose profile by linearly summing lagged copies of the single-dose curve. This is the NCA equivalent of multi-dose simulation, and it requires no compartmental model. Observed steady-state parameters (Cav, PTR, fluctuation) are covered in [Multiple-Dose and Steady-State](multiple-dose.qmd); estimating when steady state is reached is covered in [Time to Steady State](tss.qmd).
 
-The core assumption is **linear, time-invariant pharmacokinetics**: the drug does not accumulate non-linearly, and clearance and volume do not change over time.
+The core assumption is **linear, time-invariant pharmacokinetics**: the drug does not accumulate non-linearly, and clearance and volume do not change over time. See also the package vignette [Superposition of Pharmacokinetic Data](https://humanpred.github.io/pknca/articles/v20-superposition.html).
 
 ```{mermaid}
 flowchart LR
@@ -212,6 +212,8 @@ cat("Steady-state Cmax:", round(cmax_ss, 2), "mg/L\n")
 | `check.blq` | No (default `TRUE`) | Require first concentration = 0; set `FALSE` if first sample is non-zero |
 | `auc.type` | No (default `"AUCinf"`) | How to extrapolate the single-dose tail: `"AUCinf"`, `"AUClast"`, or `"AUCall"` |
 | `additional.times` | No | Extra timepoints to include in the output |
+
+Interpolation and tail extrapolation follow [the dose-aware interpolation methods](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
 
 > **Limitation:** Superposition assumes linear PK. It should not be used for drugs with non-linear kinetics (e.g. Michaelis-Menten elimination, time-varying clearance, or saturable protein binding).
 

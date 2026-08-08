@@ -23,6 +23,8 @@ situations require imputation:
 
 Imputation is applied just before each individual interval is calculated, on a
 per-subject, per-interval basis. The original data frame is never modified.
+The package's [Data Imputation vignette](https://humanpred.github.io/pknca/articles/v08-data-imputation.html)
+describes the same mechanism from the implementation side.
 
 ### Example data: Theoph with t = 0 removed
 
@@ -204,7 +206,8 @@ so the fallback inserted the zero.
 
 Different intervals in the same dataset can use different strategies. Add an
 `impute` column to the intervals data frame, then pass the column name (as a
-string) to the `impute` argument of `PKNCAdata()`.
+string) to the `impute` argument of `PKNCAdata()`. The same setup is shown in
+[the vignette's per-interval section](https://humanpred.github.io/pknca/articles/v08-data-imputation.html#imputation-by-calculation-interval).
 
 ```{r}
 my_intervals <- data.frame(
@@ -295,6 +298,8 @@ as.data.frame(res_custom) |>
   filter(Subject == "1", PPTESTCD == "auclast") |>
   select(Subject, PPTESTCD, PPORRES)
 ```
+
+The vignette's [advanced section](https://humanpred.github.io/pknca/articles/v08-data-imputation.html#advanced-writing-your-own-imputation-functions) shows another worked example.
 
 ---
 

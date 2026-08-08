@@ -23,7 +23,7 @@ o_dose <- PKNCAdose(d_dose, dose ~ time | subject, route = "extravascular")
 
 Every NCA parameter that PKNCA can compute is **registered** in an internal registry via `add.interval.col()`. When you request `auclast = TRUE` in an interval, PKNCA looks up the registered function for `auclast` and calls it with the right arguments.
 
-You can extend the registry with your own parameters — new functions that compute anything derivable from concentrations, times, doses, or other already-computed parameters.
+You can extend the registry with your own parameters — new functions that compute anything derivable from concentrations, times, doses, or other already-computed parameters. See also the package vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
 
 ```{r}
 # Number of parameters registered by default
@@ -308,6 +308,8 @@ summary(pk.nca(PKNCAdata(o_conc, o_dose, intervals = data.frame(
   auclast = TRUE, cmax = TRUE, exposure.ratio = TRUE
 ))))
 ```
+
+The vignette's [summary section](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html#tell-pknca-how-to-summarize-the-parameter) covers the same registration.
 
 ---
 

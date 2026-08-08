@@ -14,7 +14,7 @@ PKNCA ships with a comprehensive `testthat`-based test suite that covers the ful
 
 ## PKNCA's validation approach
 
-The validation strategy is **reproducibility-first**: re-running the test suite in your local environment and obtaining the same results as the original package development constitutes confirmation that the software is working correctly in your system.
+The validation strategy is **reproducibility-first**: re-running the test suite in your local environment and obtaining the same results as the original package development constitutes confirmation that the software is working correctly in your system. This mirrors the package's own [PKNCA Validation](https://humanpred.github.io/pknca/articles/v60-PKNCA-validation.html) vignette.
 
 The test suite uses the [`testthat`](https://testthat.r-lib.org/) framework and targets near-complete coverage of every calculation function. Tests range from numerical spot-checks of individual PK parameters to integration tests of the full `pk.nca()` pipeline.
 
@@ -91,7 +91,7 @@ A passing run reports the number of tests, the number of expectations checked, a
 
 - **FAIL 0** — no calculation errors; the install is valid.
 - **SKIP n** — some tests are conditionally skipped (e.g. tests that require internet access, or environment-specific checks). Skips are expected and do not indicate a problem.
-- **WARN w** — warnings during tests are expected; the PKNCA validation vignette explicitly notes that warnings appear during testing and are not displayed in the published vignette.
+- **WARN w** — warnings during tests are expected; the [PKNCA validation vignette](https://humanpred.github.io/pknca/articles/v60-PKNCA-validation.html) explicitly notes that warnings appear during testing and are not displayed in the published vignette.
 
 If any failures are reported, the output shows the test file, test name, and the specific expectation that failed — compare the `expected` and `actual` values to diagnose whether the issue is a platform difference or a genuine calculation error.
 
