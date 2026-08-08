@@ -5,7 +5,6 @@ title: "Validation and Testing"
 ```{r setup, include=FALSE}
 library(PKNCA)
 library(dplyr)
-library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
@@ -13,9 +12,9 @@ PKNCA ships with a comprehensive `testthat`-based test suite that covers the ful
 
 ---
 
-## 1. PKNCA's Validation Approach
+## PKNCA's validation approach
 
-The validation strategy is **reproducibility-first**: re-running the test suite in your local environment and obtaining the same results as the original package development constitutes confirmation that the software is working correctly in your system.
+The validation strategy is **reproducibility-first**: re-running the test suite in your local environment and obtaining the same results as the original package development constitutes confirmation that the software is working correctly in your system. This mirrors the package's own [PKNCA Validation](https://humanpred.github.io/pknca/articles/v60-PKNCA-validation.html) vignette.
 
 The test suite uses the [`testthat`](https://testthat.r-lib.org/) framework and targets near-complete coverage of every calculation function. Tests range from numerical spot-checks of individual PK parameters to integration tests of the full `pk.nca()` pipeline.
 
@@ -25,11 +24,11 @@ To check whether tests were installed alongside the package:
 system.file("tests", package = "PKNCA")
 ```
 
-If this returns an empty string, the tests were not installed. Standard CRAN installs do not include tests by default; see Section 2 for how to install them.
+If this returns an empty string, the tests were not installed. Standard CRAN installs do not include tests by default; see “Installing with tests and running the suite” below for how to install them.
 
 ---
 
-## 2. Installing with Tests and Running the Suite
+## Installing with tests and running the suite
 
 Tests must be explicitly included at install time.
 
@@ -58,36 +57,47 @@ remotes::install_github(
 ```{r run-tests, eval=FALSE}
 if (!requireNamespace("testthat")) install.packages("testthat")
 
-# Option A — via devtools (recommended during development)
-devtools::test(system.file(package = "PKNCA"))
-
-# Option B — via testthat directly
+# Option A — via testthat (recommended; the same call PKNCA's validation
+# vignette uses)
 testthat::test_package("PKNCA")
 
-# Option C — full R CMD CHECK (most rigorous; runs examples too)
-# From a terminal:
-# R CMD CHECK $(R -e 'cat(find.package("PKNCA"))')
+# Option B — via base R's tools package (also runs the installed tests;
+# writes result files to the working directory)
+tools::testInstalledPackage("PKNCA", types = "tests")
+```
+
+**Option C — full `R CMD check`** is the most rigorous route (it also runs examples and vignettes). It checks a *source* package rather than the installed library, so download the released source tarball first:
+
+```{r download-source, eval=FALSE}
+# eval=FALSE: downloads a file; the check itself runs outside R
+download.packages("PKNCA", destdir = ".", type = "source")
+```
+
+Then, from a terminal:
+
+```sh
+R CMD check PKNCA_<version>.tar.gz
 ```
 
 ---
 
-## 3. Interpreting Results
+## Interpreting results
 
 A passing run reports the number of tests, the number of expectations checked, and zero failures. A typical run looks like:
 
 ```
-[ FAIL 0 | WARN 0 | SKIP n | PASS N ]
+[ FAIL 0 | WARN w | SKIP n | PASS N ]
 ```
 
 - **FAIL 0** — no calculation errors; the install is valid.
-- **SKIP n** — some tests are conditionally skipped (e.g., tests that require internet access, or environment-specific checks). Skips are expected and do not indicate a problem.
-- **WARN** — warnings during tests are expected; the PKNCA validation vignette explicitly notes that warnings appear during testing and are not displayed in the published vignette.
+- **SKIP n** — some tests are conditionally skipped (e.g. tests that require internet access, or environment-specific checks). Skips are expected and do not indicate a problem.
+- **WARN w** — warnings during tests are expected; the [PKNCA validation vignette](https://humanpred.github.io/pknca/articles/v60-PKNCA-validation.html) explicitly notes that warnings appear during testing and are not displayed in the published vignette.
 
 If any failures are reported, the output shows the test file, test name, and the specific expectation that failed — compare the `expected` and `actual` values to diagnose whether the issue is a platform difference or a genuine calculation error.
 
 ---
 
-## 4. Checking the Installed Version
+## Checking the installed version
 
 Before any regulatory analysis, record the exact package version:
 
@@ -107,7 +117,7 @@ The canonical citation is:
 
 ---
 
-## 5. Spot-Checking a Calculation Against a Known Reference
+## Spot-checking a calculation against a known reference
 
 Running the full test suite confirms the package as a whole. For a targeted validation of a specific parameter, you can compute the value by hand and compare it to `pk.nca()` output.
 
@@ -150,7 +160,7 @@ d_data <- PKNCAdata(
   d_conc, d_dose,
   intervals = data.frame(start = 0, end = Inf, auclast = TRUE)
 )
-suppressMessages(o_nca <- pk.nca(d_data))
+o_nca <- pk.nca(d_data)
 
 pknca_auclast <- as.data.frame(o_nca) |>
   filter(Subject == "1", PPTESTCD == "auclast") |>
@@ -160,14 +170,12 @@ cat("PKNCA AUClast:              ", round(pknca_auclast, 3), "\n")
 cat("Difference (manual - PKNCA):", round(manual_auclast - pknca_auclast, 6), "\n")
 ```
 
-The manual calculation above uses the **linear** trapezoidal rule throughout. PKNCA defaults to **lin up / log down** (`PKNCA.options("auc.method")` = `"lin up/log down"`), which uses log-linear integration on any descending interval — so the two values will differ for a typical PK profile with a descending phase. To make them agree exactly, set `auc.method = "linear"`:
+The manual calculation above uses the **linear** trapezoidal rule throughout. PKNCA defaults to **lin up/log down** (`PKNCA.options("auc.method")` = `"lin up/log down"`), which uses log-linear integration on any descending interval — so the two values will differ for a typical PK profile with a descending phase. To make them agree exactly, set `auc.method = "linear"`:
 
 ```{r linear-match}
-suppressMessages(
-  o_nca_lin <- pk.nca(PKNCAdata(d_conc, d_dose,
-    intervals = data.frame(start = 0, end = Inf, auclast = TRUE),
-    options   = list(auc.method = "linear")))
-)
+o_nca_lin <- pk.nca(PKNCAdata(d_conc, d_dose,
+  intervals = data.frame(start = 0, end = Inf, auclast = TRUE),
+  options   = list(auc.method = "linear")))
 pknca_lin <- as.data.frame(o_nca_lin) |>
   filter(Subject == "1", PPTESTCD == "auclast") |> pull(PPORRES)
 cat("Manual (linear trap):   ", round(manual_auclast, 3), "\n")
@@ -183,7 +191,7 @@ PKNCA.options("auc.method")
 
 ---
 
-## 6. Reproducibility Reporting with `sessionInfo()`
+## Reproducibility reporting with `sessionInfo()`
 
 Every validation run should capture the complete session environment. Record this at the end of each analysis script:
 
@@ -216,5 +224,5 @@ Together, `packageVersion("PKNCA")`, `PKNCA.options()`, `sessionInfo()`, and `re
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

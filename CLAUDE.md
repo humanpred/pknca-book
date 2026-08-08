@@ -5,7 +5,7 @@ This file provides guidance to Claude Code when working in this repository.
 ## What This Is
 
 A Quarto book documenting the [PKNCA](https://github.com/humanpred/pknca) R package (≥ 0.12.2).
-Every function, option, and parameter is covered with runnable examples verified against live PKNCA output.
+Every parameter, option, and user-facing function is covered with runnable examples verified against live PKNCA output; the `pk.calc.*` calculation functions are indexed in the Developer Reference.
 
 **Book repo:** https://github.com/humanpred/pknca-book  
 **Rendered book:** https://humanpred.github.io/pknca-book/  
@@ -43,6 +43,11 @@ _book/                   # rendered output (gitignored)
 - **No `suppressWarnings()`** hiding real issues — fix root causes
 - **Each page is self-contained:** load packages at the top of every `.qmd`
 - **New features** are tagged with `(≥ X.Y.Z)` to indicate the minimum version
+- **US English spelling** (PKNCA declares `Language: en-US`); ggplot2's `colour =` argument spelling in code is acceptable
+- **Headings:** sentence case, no manual numbering; page titles are Title Case
+- **Chapter footers:** every chapter ends with a `:::callout-note` labeled `**pkgdown reference:**` linking each function the chapter demonstrates (plain link text, no backticks); verify new URLs resolve
+- **Cross-linking:** link the corresponding package vignette (`https://humanpred.github.io/pknca/articles/`) where a chapter covers the same topic, and sibling chapters instead of re-explaining their material
+- **Naming in examples:** `d_*` for raw data frames, `o_*` for PKNCA objects; "timepoint" (one word); the integration option string is written exactly `"lin up/log down"`
 
 ## Adding or Updating Content
 

@@ -20,11 +20,11 @@ o_dose <- PKNCAdose(d_dose, dose ~ time | subject, route = "extravascular")
 
 ## How PKNCA estimates λz
 
-PKNCA uses **curve stripping**: it systematically evaluates all possible subsets of terminal-phase points (from 3 points up to the full tail), fits log-linear regression to each subset, and selects the best fit based on adjusted R².
+PKNCA uses **curve stripping**: it systematically evaluates every terminal window ending at the last point (last 3 points, last 4, and so on up to the full tail), fits log-linear regression to each subset, and selects the best fit based on adjusted R².
 
-The selection criterion uses a **tolerance window**: among all subsets that pass quality filters, PKNCA picks the one with the **most points** whose adjusted R² is within `adj.r.squared.factor` of the best adjusted R²:
+The selection criterion uses a **tolerance window**: among all subsets that yield a valid fit (λz > 0), PKNCA picks the one with the **most points** whose adjusted R² is within `adj.r.squared.factor` of the best adjusted R²:
 
-$$\text{selected} = \arg\max_{\text{n points}} \left\{ \text{adj.}R^2 \geq \max(\text{adj.}R^2) - \text{adj.r.squared.factor} \right\}$$
+> selected n = the largest n whose adj.R² is within `adj.r.squared.factor` of the best adj.R²
 
 The small tolerance (`adj.r.squared.factor`, default 0.0001) means: prefer longer windows (more points → more accurate λz) unless the longer window's adj.R² is noticeably worse than the best. This is a **model-selection tolerance**, not a per-point penalty added to R².
 
@@ -32,12 +32,14 @@ The small tolerance (`adj.r.squared.factor`, default 0.0001) means: prefer longe
 flowchart TD
     A["All points after Tmax"] --> B["Try subsets: last 3, last 4, ..., all"]
     B --> C["Fit log-linear regression to each"]
-    C --> D{"Passes quality filters?<br/>λz > 0, R² ≥ threshold<br/>span.ratio ≥ minimum"}
+    C --> D{"Valid fit?<br/>λz > 0<br/>≥ min.hl.points points"}
     D -- yes --> E["Compute adj.R²"]
     D -- no --> F["Discard subset"]
     E --> G["Select longest window within adj.r.squared.factor of best adj.R²"]
     G --> H["Return λz, half.life, R², n.points"]
 ```
+
+The algorithm is described step-by-step in the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
 
 ---
 
@@ -75,17 +77,17 @@ as.data.frame(o_nca) |>
 | `lambda.z.n.points` | Number of points used in the selected regression |
 | `lambda.z.time.first` | First timepoint included in the regression window |
 | `r.squared` / `adj.r.squared` | Fit quality of the selected regression |
-| `span.ratio` | (lambda.z.time.last − lambda.z.time.first) / half.life — post-hoc quality flag |
+| `span.ratio` | (time of last − time of first regression point) / half.life — post-hoc quality flag |
 
 ---
 
 ## Quality filters
 
-PKNCA applies one filter **during fitting** and exposes additional parameters you use to flag or exclude results **after fitting** with `exclude()`.
+PKNCA provides one filter enforced **during fitting**, several post-hoc exclusion thresholds applied **after fitting** with `exclude()`, and one fitting option:
 
-> **Important distinction:** Only `min.hl.points` is enforced inside `pk.calc.half.life()` — too few points returns `half.life = NA` immediately. `min.hl.r.squared` and `min.span.ratio` are **not** consulted during fitting; they are thresholds for `exclude()` calls after `pk.nca()`.
+> **Important distinction:** Only `min.hl.points` is enforced inside `pk.calc.half.life()` — with too few points, `half.life` is `NA` immediately. `min.hl.r.squared` and `min.span.ratio` are **not** consulted during fitting; they are thresholds for `exclude()` calls after `pk.nca()`.
 
-### 1. Minimum number of points (enforced during fitting)
+### Minimum number of points (enforced during fitting)
 
 ```{r}
 # Default: 3 points minimum — the only filter that makes half.life NA during pk.nca()
@@ -100,19 +102,19 @@ as.data.frame(o_nca_4pts) |>
   arrange(subject)
 ```
 
-### 2. R² threshold (post-hoc exclusion via `exclude()`)
+### R² threshold (post-hoc exclusion via `exclude()`)
 
-`min.hl.r.squared` sets the minimum **unadjusted R²** threshold. It has no effect during `pk.nca()`; use it with `exclude_nca_min.hl.r.squared()` after fitting:
+`min.hl.r.squared` sets the minimum **unadjusted R²** threshold. It has no effect during `pk.nca()`; use it with `exclude_nca_min.hl.r.squared()` after fitting. Theoph's log-linear fits are all excellent — every subject's R² is above 0.99 — so a conventional threshold like 0.95 flags nothing here; this demonstration uses a stricter 0.995 to make the effect visible:
 
 ```{r}
 # Compute half-life for all subjects
 o_nca_r2 <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = hl_interval))
 
-# Then flag results with unadjusted R² < 0.95
+# Then flag results with unadjusted R² < 0.995
 o_nca_r2_excl <- exclude(
   o_nca_r2,
-  reason = "r.squared < 0.95",
-  FUN    = exclude_nca_min.hl.r.squared(0.95)
+  reason = "r.squared < 0.995",
+  FUN    = exclude_nca_min.hl.r.squared(0.995)
 )
 
 as.data.frame(o_nca_r2_excl) |>
@@ -122,9 +124,17 @@ as.data.frame(o_nca_r2_excl) |>
   arrange(subject)
 ```
 
+The flag itself is recorded in the `exclude` column. Subject 8 (R² = 0.991) is the only one below the threshold:
+
+```{r}
+as.data.frame(o_nca_r2_excl) |>
+  filter(!is.na(exclude)) |>
+  distinct(subject, exclude)
+```
+
 For the stricter **adjusted R²** filter: `exclude_nca_min.hl.adj.r.squared(min)`.
 
-### 3. Span ratio threshold (post-hoc exclusion via `exclude()`)
+### Span ratio threshold (post-hoc exclusion via `exclude()`)
 
 `min.span.ratio` has no effect during `pk.nca()`; use it with `exclude_nca_span.ratio()`:
 
@@ -143,7 +153,15 @@ as.data.frame(o_nca_span_excl) |>
   arrange(subject)
 ```
 
-### 4. Allow / exclude Tmax
+Three subjects fall below a span ratio of 2 and are flagged in the `exclude` column:
+
+```{r}
+as.data.frame(o_nca_span_excl) |>
+  filter(!is.na(exclude)) |>
+  distinct(subject, exclude)
+```
+
+### Allowing or excluding Tmax
 
 By default Tmax is excluded from the λz regression (drug may still be distributing).
 
@@ -163,9 +181,11 @@ as.data.frame(o_nca_tmax) |>
 
 ## Manually controlling which points are used
 
+See also [manual point selection](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html#manual-point-selection) in the Half-Life Calculation vignette.
+
 ### Excluding specific points (`exclude_half.life`)
 
-Mark individual observations that should never be included in the λz regression — for example, a suspected outlier or a resurgence peak.
+Mark individual observations that should never be included in the λz regression — for example, a suspected outlier or a secondary peak.
 
 ```{r}
 d_conc_excl <- d_conc |>
@@ -176,7 +196,7 @@ o_conc_excl <- PKNCAconc(d_conc_excl, conc ~ time | subject,
 
 o_nca_excl <- pk.nca(PKNCAdata(o_conc_excl, o_dose, intervals = hl_interval))
 
-# Compare n.points and lambda.z.time.first for subject 1
+# Compare half.life and n.points for subject 1
 bind_rows(
   as.data.frame(o_nca) |>
     filter(subject == "1", PPTESTCD %in% c("half.life", "lambda.z.n.points")) |>
@@ -189,9 +209,9 @@ bind_rows(
   arrange(version, PPTESTCD)
 ```
 
-### Forcing specific points (`include_half.life`)
+### Specifying the exact points (`include_half.life`)
 
-Mark points that **must** be included — they cannot be dropped even if excluding them would improve the fit. Useful for regulatory requirements.
+Mark the exact points to fit: `include_half.life` **bypasses curve stripping entirely** and fits only the marked points. Automatic selection — including `min.hl.points`, `adj.r.squared.factor`, and `allow.tmax.in.half.life` — is not applied, so even a two-point fit is accepted. Useful when the regression window is pre-specified, e.g. by an analysis plan.
 
 ```{r}
 d_conc_incl <- d_conc |>
@@ -212,9 +232,7 @@ as.data.frame(o_nca_incl) |>
 
 ---
 
-## Tobit regression for BLQ-heavy data
-
-Available in PKNCA ≥ 0.12.2 (now on CRAN).
+## Tobit regression for BLQ-heavy data (≥ 0.12.2)
 
 ### Why Tobit?
 
@@ -227,39 +245,38 @@ Tobit regression handles this correctly by treating each BLQ observation as a **
 
 ### The key statistical difference from OLS
 
-OLS minimises the sum of squared residuals across observed concentrations. Tobit instead **maximises a likelihood** that has two components:
+OLS minimizes the sum of squared residuals across observed concentrations. Tobit instead **maximizes a likelihood** that has two components:
 
 1. **Observed concentrations** (above LLOQ): contribute via the normal log-likelihood of the log-transformed concentration given the fitted log-linear line.
-2. **BLQ observations**: contribute the cumulative probability that the true (unobserved) concentration falls at or below the LLOQ, i.e. `Φ((log(LLOQ) − predicted) / σ)`.
+2. **BLQ observations**: contribute the cumulative probability that the true (unobserved) concentration falls at or below the LLOQ, i.e. `Φ((log(LLOQ) − predicted) / σ)`, where Φ is the standard normal CDF and σ the residual standard deviation.
 
 This means BLQ timepoints actively inform the slope estimate — they pull the λz estimate toward the true terminal slope — rather than being discarded.
 
 ### When to consider Tobit
 
-Tobit regression is most beneficial when:
+Tobit regression is most beneficial in the following situations:
 
-- More than approximately **20% of terminal-phase observations are BLQ** — below this threshold, OLS and Tobit estimates converge.
+- A substantial fraction of terminal-phase observations — as a rough rule of thumb (not a documented PKNCA threshold), a fifth or more — are BLQ. With few or no BLQ points, OLS and Tobit give similar estimates.
 - The drug has **low tissue concentrations** or a short distribution half-life relative to the sampling schedule, making late timepoints frequently BLQ.
 - **Pediatric or geriatric studies** with limited sampling windows, where sparse late-time samples are often at or near the LLOQ.
 - The terminal slope is important for downstream parameters (AUC extrapolation, mean residence time) and precision matters for regulatory submissions.
 
-### Using Tobit (PKNCA ≥ 0.12.2)
+### Using Tobit directly with `pk.calc.half.life()` (≥ 0.12.2)
 
-Tobit is available by calling `pk.calc.half.life()` directly. Supply the full concentration-time vector and the LLOQ for each timepoint:
+Tobit can be called directly through `pk.calc.half.life()` or used in the full `pk.nca()` pipeline (next section). For a direct call, supply the full concentration-time vector and the LLOQ (a scalar, or a vector with one value per timepoint):
 
 ```{r}
 # Simulated profile — concentrations at 16h and 24h are below the LLOQ of 0.1 mg/L
 conc_tobit <- c(0, 2.5, 4.8, 4.2, 2.9, 1.4, 0.6, 0.05, 0.01)
 time_tobit <- c(0, 0.5,   1,   2,   4,   8,  12,  16,  24)
-lloq_tobit <- rep(0.1, length(conc_tobit))   # scalar lloq applied to all timepoints
 
 # OLS reference
 hl_ols   <- pk.calc.half.life(conc = conc_tobit, time = time_tobit, tmax = 1,
                                tlast = 24, hl_method = "log-linear")
 
-# Tobit — includes the BLQ observations as left-censored at lloq
+# Tobit — includes the BLQ observations as left-censored at the scalar lloq
 hl_tobit <- pk.calc.half.life(conc = conc_tobit, time = time_tobit, tmax = 1,
-                               tlast = 24, lloq = lloq_tobit, hl_method = "tobit")
+                               tlast = 24, lloq = 0.1, hl_method = "tobit")
 
 # Compare
 data.frame(
@@ -270,14 +287,39 @@ data.frame(
 )
 ```
 
-> **Note:** Passing `hl_method = "tobit"` through the `pk.nca()` pipeline (via `PKNCAdata(options=...)`) also requires the LLOQ to be wired through from the concentration data, which is tracked for a future PKNCA update. For full pipeline support, use `hl_method = "log-linear"` (default) and call `pk.calc.half.life()` with `hl_method = "tobit"` directly for targeted analyses.
+### Tobit through the `pk.nca()` pipeline (≥ 0.12.2)
 
-Tobit adds new output columns to the result:
+To run Tobit across a full dataset, declare the LLOQ on the concentration object with the `lloq` argument of `PKNCAconc()` and select the method with the `hl_method` option:
+
+```{r}
+# Subject 1 with an assay LLOQ of 0.5 mg/L
+d_conc_subset <- d_conc |> filter(subject == "1")
+d_dose_subset <- d_dose |> filter(subject == "1")
+
+o_conc_tobit <- PKNCAconc(d_conc_subset, conc ~ time | subject, lloq = 0.5)
+o_dose_tobit <- PKNCAdose(d_dose_subset, dose ~ time | subject, route = "extravascular")
+
+o_data_tobit <- PKNCAdata(
+  o_conc_tobit, o_dose_tobit,
+  intervals = data.frame(start = 0, end = Inf, half.life = TRUE),
+  options   = list(hl_method = "tobit")
+)
+o_nca_tobit <- pk.nca(o_data_tobit)
+
+as.data.frame(o_nca_tobit) |>
+  filter(PPTESTCD %in% c("half.life", "lambda.z.n.points_blq",
+                          "tobit_residual", "adj_tobit_residual")) |>
+  select(PPTESTCD, PPORRES)
+```
+
+None of subject 1's terminal-phase samples fall below this LLOQ (`lambda.z.n.points_blq` is 0), so the Tobit estimate matches the OLS fit here — the example shows the wiring, and the Tobit-specific outputs appear alongside the usual half-life results.
+
+Tobit adds new output parameters to the results:
 
 | Parameter | Description |
 |---|---|
 | `lambda.z.n.points_blq` | Number of BLQ points included in the Tobit regression |
-| `tobit_residual` | Sum of squared Tobit residuals for the selected window |
+| `tobit_residual` | Estimated residual standard deviation of the Tobit fit (log-concentration scale) |
 | `adj_tobit_residual` | Adjusted Tobit residual (analogous to adjusted R²) |
 
 ### Tobit-related options
@@ -285,16 +327,18 @@ Tobit adds new output columns to the result:
 | Option | Default | Effect |
 |---|---|---|
 | `hl_method` | `"log-linear"` | `"log-linear"` (OLS) or `"tobit"` (censored-likelihood regression) |
-| `tobit_n_points_penalty` | `0` | Penalty per extra terminal point in the log-likelihood; positive values favour shorter windows |
-| `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for the Tobit optimisation |
+| `tobit_n_points_penalty` | `0` | Exponent in the window-selection criterion (residual × n^penalty); positive values favor shorter windows |
+| `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for the Tobit optimization |
 
-See `vignette("v06-half-life-calculation-tobit", package = "PKNCA")` for a detailed simulation comparison between OLS and Tobit estimates.
+Window selection also differs from the log-linear fits: instead of the adjusted-R² rule, PKNCA fits each candidate terminal window and keeps the one that minimizes `tobit_residual × n_points^tobit_n_points_penalty`, with ties going to the larger window.
+
+See the vignette [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html) for a detailed simulation comparison between OLS and Tobit estimates.
 
 ---
 
-## lambda.z.corrxy — regression correlation
+## `lambda.z.corrxy` — regression correlation
 
-`lambda.z.corrxy` (available in PKNCA ≥ 0.12.2) returns the Pearson correlation between time and log-concentration for the points used in the λz regression. It is a unitless diagnostic — values close to −1 indicate a strong, clean terminal slope.
+`lambda.z.corrxy` (≥ 0.12.2) returns the Pearson correlation between time and log-concentration for the points used in the λz regression. It is a unitless diagnostic — values close to −1 indicate a strong, clean terminal slope.
 
 ```{r}
 hl_corrxy_interval <- data.frame(
@@ -318,12 +362,12 @@ as.data.frame(o_nca_corrxy) |>
 
 ---
 
-## Visualising the chosen regression window
+## Visualizing the chosen regression window
 
 ```{r}
 # Extract lambda.z.time.first and n.points to annotate the plot
 hl_results <- as.data.frame(o_nca) |>
-  filter(PPTESTCD %in% c("lambda.z.time.first", "lambda.z.n.points", "tmax")) |>
+  filter(PPTESTCD %in% c("lambda.z.time.first", "lambda.z.n.points")) |>
   tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES)
 
 # Plot subject 1 with regression window highlighted
@@ -343,9 +387,8 @@ ggplot(subj1, aes(x = time, y = conc)) +
   theme_minimal()
 ```
 
-
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_min.hl.r.squared()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [exclude_nca_span.ratio()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [exclude_nca_min.hl.adj.r.squared()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
 :::

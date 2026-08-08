@@ -9,13 +9,7 @@ library(dplyr)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-## Overview
-
-PKNCA resolves parameter dependencies automatically. When you request `aucinf.obs`, PKNCA internally ensures `lambda.z` is computed first because `aucinf.obs` depends on it. This graph makes those dependencies explicit.
-
-## How dependencies are defined
-
-Every NCA parameter is registered via `add.interval.col()` with a `depends` vector listing the parameters that must be computed before it. The full registry is accessible via `get.interval.cols()`.
+PKNCA resolves parameter dependencies automatically: when you request `aucinf.obs`, PKNCA internally ensures `lambda.z` is computed first because `aucinf.obs` depends on it. These dependencies are declared at registration time — every NCA parameter is registered via `add.interval.col()` with a `depends` vector naming the parameters that must be computed before it, and the full registry is accessible via `get.interval.cols()`. The graph below makes the whole dependency network explicit.
 
 ## Interactive dependency graph
 
@@ -34,21 +28,21 @@ edges <- lapply(names(cols), function(param) {
 # All unique nodes
 all_nodes <- unique(c(edges$from, edges$to, names(cols)))
 
-# Assign category for colouring
-categorise <- function(name) {
+# Assign category for coloring
+categorize <- function(name) {
   case_when(
     grepl("^auc",       name) ~ "AUC",
     grepl("^lambda|half\\.life|r\\.squared", name) ~ "Half-life / λz",
     grepl("^cl\\.|^vz\\.|^vss", name) ~ "CL / Volume",
     grepl("^mrt",       name) ~ "MRT",
-    grepl("^c(max|min|0|last|first)|^t(max|min|last|first|lag)|clast", name) ~ "Cmax / Tmax",
+    grepl("^c(max|min|0|last|first)|^t(max|min|last|first|lag)|^clast", name) ~ "Cmax / Tmax",
     grepl("^f$|bioavail|^ae|^fe|^clr|^vd",  name) ~ "Bioavailability / Renal",
     grepl("^tss",       name) ~ "Steady-state",
     TRUE ~ "Other"
   )
 }
 
-category_colours <- c(
+category_colors <- c(
   "AUC"                    = "#4e79a7",
   "Half-life / λz"         = "#f28e2b",
   "CL / Volume"            = "#e15759",
@@ -62,12 +56,11 @@ category_colours <- c(
 nodes <- data.frame(
   id    = all_nodes,
   label = all_nodes,
-  group = categorise(all_nodes),
+  group = categorize(all_nodes),
   stringsAsFactors = FALSE
-) |>
-  mutate(color = category_colours[group])
+)
 
-visNetwork(nodes, edges,
+graph <- visNetwork(nodes, edges,
            width = "100%", height = "700px",
            main = "PKNCA NCA Parameter Dependencies") |>
   visNodes(shape = "dot", size = 14,
@@ -83,6 +76,13 @@ visNetwork(nodes, edges,
   visLegend(useGroups = TRUE, position = "right") |>
   visPhysics(stabilization = list(iterations = 200)) |>
   visLayout(randomSeed = 42)
+
+# Register each category as a visNetwork group: nodes and legend swatches both
+# take their color from the group definition, so they always match
+for (grp in names(category_colors)) {
+  graph <- visGroups(graph, groupname = grp, color = category_colors[[grp]])
+}
+graph
 ```
 
 **How to use this graph:**
@@ -90,7 +90,7 @@ visNetwork(nodes, edges,
 - Click a parameter node to highlight its immediate dependencies and dependents
 - The "Select parameter" dropdown jumps to a specific node
 - Drag nodes to rearrange; scroll to zoom
-- Colours indicate parameter family (see legend)
+- Colors indicate parameter family (see legend)
 
 ## Dependency table
 
@@ -111,13 +111,39 @@ dep_table <- lapply(names(cols), function(param) {
 knitr::kable(dep_table, col.names = c("Parameter", "Depends on"))
 ```
 
+## Parameter-to-function mapping
+
+Every interval parameter is computed by a function registered alongside it — usually named `pk.calc.*()` — and the registry entry returned by `get.interval.cols()` records that function name in its `$FUN` field, together with the parameter's unit type and description. Where `$FUN` is `NA`, the parameter has no dedicated function: it is either produced as part of another function's output (for example, `r.squared` and `lambda.z.time.first` are returned by the same half-life fit that produces `half.life`) or it is an interval boundary (`start`, `end`).
+
+The table below is the complete index of the calculation API: every registered parameter, the function that computes it, its unit type, and its description. To add your own parameter to this registry, see the [Writing Custom Parameters chapter](../user/custom-parameters.qmd) and the vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
+
+```{r fun-map}
+cols <- get.interval.cols()
+
+fun_map <- data.frame(
+  parameter = names(cols),
+  # $FUN is a character function name, or logical NA when the parameter has no
+  # dedicated function; as.character() coerces both to character
+  fun       = vapply(cols, function(x) as.character(x$FUN), character(1)),
+  unit_type = vapply(cols, function(x) x$unit_type, character(1)),
+  desc      = vapply(cols, function(x) x$desc, character(1)),
+  stringsAsFactors = FALSE
+) |>
+  arrange(parameter)
+
+knitr::kable(
+  fun_map,
+  row.names = FALSE,
+  col.names = c("Parameter", "Function", "Unit type", "Description")
+)
+```
+
 ## Dependency resolution
 
-When you call `pk.nca()`, PKNCA calls `sort.interval.cols()` internally to produce a topologically sorted execution order — parameters with no dependencies run first, then those that depend on already-computed values.
+When you call `pk.nca()`, PKNCA sorts the registry internally with `PKNCA:::sort_interval_cols()` (unexported) to produce a topologically sorted execution order — parameters with no dependencies run first, then those that depend on already-computed values.
 
 ```{r sort-order}
-# Reconstruct execution order: parameters with no dependencies first,
-# then those whose dependencies are already satisfied.
+# Count the direct dependencies of each parameter
 cols <- get.interval.cols()
 dep_counts <- sapply(cols, function(x) length(x$depends))
 all_deps <- data.frame(
@@ -129,18 +155,26 @@ all_deps <- data.frame(
 cat(sprintf("%d parameters have no dependencies (base parameters).\n", sum(all_deps$n_depends == 0)))
 cat(sprintf("%d parameters have at least one dependency (derived parameters).\n\n", sum(all_deps$n_depends > 0)))
 
-# Show only derived parameters — these illustrate the resolution order
+# Show only derived parameters
 all_deps |>
   filter(n_depends > 0) |>
   knitr::kable(
     col.names = c("Parameter", "N dependencies"),
-    caption   = "Derived parameters ordered by number of dependencies (execution order)"
+    caption   = "Derived parameters ordered by number of direct dependencies"
   )
+```
+
+## Querying dependents: `get.parameter.deps()`
+
+`get.parameter.deps()` is the reverse lookup: given a parameter name, it returns that parameter and every parameter downstream of it — the ones whose results would be affected if you excluded or modified it.
+
+```{r parameter-deps}
+get.parameter.deps("auclast")
 ```
 
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html)
+**pkgdown reference:** [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html)
 :::

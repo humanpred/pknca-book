@@ -16,17 +16,17 @@ In **dense PK**, each subject contributes a full concentration-time profile (mul
 Sparse sampling is common in:
 
 - **Preclinical toxicokinetic studies** — serial sacrifice designs where each animal is sampled at only one timepoint
-- **Paediatric or special population studies** — where blood volume limits the number of draws per patient
+- **Pediatric or special population studies** — where blood volume limits the number of draws per patient
 - **Large observational studies** — with opportunistic sampling
 
-PKNCA handles sparse PK by computing a **mean concentration-time profile** across all subjects at each timepoint, then running NCA on that mean profile, along with a standard error estimate from the Nedelman & Jia (1998) method.
+PKNCA handles sparse PK by computing a **mean concentration-time profile** across all subjects at each timepoint, then running NCA on that mean profile, along with a standard error estimate from the Nedelman & Jia (1998) method. See also the package vignette [Sparse NCA Calculations](https://humanpred.github.io/pknca/articles/v04-sparse.html).
 
 ---
 
 ## Dataset: serial sacrifice design
 
 We construct a synthetic dataset following the Holder et al. (1999) design:
-6 nominal timepoints, 3 subjects sampled at each timepoint (18 subjects total, 1 sample each).
+7 nominal timepoints (including pre-dose t = 0), 3 subjects sampled at each timepoint (21 subjects total, 1 sample each).
 
 ```{r}
 set.seed(42)
@@ -34,7 +34,6 @@ set.seed(42)
 # True PK parameters (oral, 1-compartment)
 ka  <- 1.5   # h⁻¹ absorption rate
 kel <- 0.25  # h⁻¹ elimination rate
-F   <- 1.0
 dose <- 100  # mg
 V   <- 50    # L
 
@@ -64,7 +63,7 @@ ggplot(d_sparse, aes(x = time, y = conc)) +
   stat_summary(fun = mean, geom = "line", linewidth = 1, colour = "black") +
   stat_summary(fun = mean, geom = "point", size = 4, colour = "black", shape = 18) +
   labs(
-    title = "Sparse PK — individual samples (coloured) and mean profile (black)",
+    title = "Sparse PK — individual samples (colored) and mean profile (black)",
     x = "Time (h)", y = "Concentration (mg/L)"
   ) +
   theme_minimal()
@@ -74,7 +73,7 @@ ggplot(d_sparse, aes(x = time, y = conc)) +
 
 ## The sparse workflow
 
-The only difference from standard NCA is `sparse = TRUE` in `PKNCAconc()`. Everything else is identical.
+The main differences from standard NCA are `sparse = TRUE` in `PKNCAconc()` and requesting the `sparse_`-prefixed interval parameters.
 
 ```{r}
 # Step 1: concentration object — flag as sparse
@@ -113,8 +112,8 @@ PKNCA returns three values for sparse AUC:
 ## How PKNCA computes sparse AUC
 
 1. At each timepoint, compute the **mean concentration** across subjects (pooling all subjects sampled at that time)
-2. Apply the **lin up / log down** trapezoidal rule to the mean profile to get AUClast
-3. Estimate **variance** using the Nedelman & Jia (1998) formula, accounting for the covariance between AUC trapezoids via the Holder (2001) method
+2. Apply the **linear** trapezoidal rule to the mean profile to get AUClast (sparse AUC uses linear weights — see `sparse_auc_weight_linear` — as required by the Nedelman–Jia variance)
+3. Estimate **variance** using the Nedelman & Jia (1998) formula, accounting for the covariance between AUC trapezoids via the Holder (2001) method (full citations are in the vignette)
 4. Return AUClast ± SE and degrees of freedom
 
 ```{r}
@@ -130,9 +129,9 @@ mean_profile
 
 ## BLQ handling in sparse PK
 
-`sparse = TRUE` affects how BLQ values (coded as 0) are treated at each timepoint before averaging. The default BLQ treatment is controlled by `PKNCA.options("conc.blq")` and applies **before** the mean is computed.
+`sparse = TRUE` affects how below-the-limit-of-quantification (BLQ) values (coded as 0) are treated at each timepoint before averaging. The default BLQ treatment is controlled by `PKNCA.options("conc.blq")` and applies **before** the mean is computed.
 
-Available mean methods (controlled internally):
+By default the mean profile uses the arithmetic mean with up-to-50%-BLQ handling (`"arithmetic mean, <=50% BLQ"`; see `?sparse_mean`); the method is not a user-facing option. The two internal methods:
 
 - **`"arithmetic mean"`** — simple mean of all values including BLQs as 0
 - **`"arithmetic mean, <=50% BLQ"`** — if **strictly more than 50%** of subjects at a timepoint are BLQ, the mean concentration at that timepoint is set to 0 (at exactly 50% BLQ the mean is not zeroed)
@@ -143,6 +142,8 @@ The second method is conservative: timepoints with majority-BLQ results don't pu
 
 ## Serial sacrifice vs. repeated sampling
 
+How subjects are grouped for sparse calculations is described in [the vignette's grouping section](https://humanpred.github.io/pknca/articles/v04-sparse.html#how-subjects-are-grouped-for-sparse-calculations).
+
 ```{r}
 # Serial sacrifice: each subject contributes EXACTLY 1 sample
 d_serial <- d_sparse  # our example above — each subject is at one timepoint only
@@ -151,7 +152,7 @@ d_serial <- d_sparse  # our example above — each subject is at one timepoint o
 # (PKNCA handles this too — subjects can appear at multiple times)
 d_mixed <- bind_rows(
   d_sparse,
-  data.frame(time = 4, conc = 0.8, Subject = "S11"),  # S11 sampled at 2 times
+  data.frame(time = 4, conc = 0.8, Subject = "S11"),  # S11 (t=0 in d_sparse) now has 3 samples: 0, 4, 8
   data.frame(time = 8, conc = 0.3, Subject = "S11")
 )
 
@@ -163,8 +164,6 @@ o_data_mixed  <- PKNCAdata(
   intervals = data.frame(start = 0, end = Inf, sparse_auclast = TRUE)
 )
 o_nca_mixed <- pk.nca(o_data_mixed)
-# Note: degrees of freedom (sparse_auc_df) cannot be calculated
-# when any subject contributes multiple samples — a current PKNCA limitation
 as.data.frame(o_nca_mixed)
 ```
 
@@ -269,22 +268,25 @@ sparse_full_interval <- data.frame(
   sparse_aumclast = TRUE,   # also pulls in sparse_auclast, SE, df
   mrt.sparse.last = TRUE,
   cl.sparse.last  = TRUE,
-  kel.sparse.last = TRUE
+  kel.sparse.last = TRUE,
+  vss.sparse.last = TRUE,
+  vz.sparse.last  = TRUE
 )
 
 o_nca_sparse_full <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = sparse_full_interval))
 
 as.data.frame(o_nca_sparse_full) |>
   filter(PPTESTCD %in% c("sparse_auclast", "sparse_aumclast",
-                          "mrt.sparse.last", "cl.sparse.last", "kel.sparse.last")) |>
+                          "mrt.sparse.last", "cl.sparse.last", "kel.sparse.last",
+                          "vss.sparse.last", "vz.sparse.last")) |>
   select(PPTESTCD, PPORRES)
 ```
 
-> `vss.sparse.last` and `vz.sparse.last` require a terminal elimination estimate (λz) which cannot be derived from the pooled mean sparse profile alone; they return `NA` unless additional terminal-phase information is available.
+> `vss.sparse.last` (= CL × MRT) and `vz.sparse.last` (= CL / kel) are derived entirely from the sparse AUC and AUMC — no terminal-phase (λz) fit is needed. Because `kel.sparse.last` is 1/MRT rather than a λz estimate, `vz.sparse.last` is numerically equal to `vss.sparse.last`. With extravascular data like this chapter's, the clearance and volume values are apparent (CL/F, V/F) estimates.
 
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [sparse_mean()](https://humanpred.github.io/pknca/reference/sparse_mean.html) · [sparse_auc_weight_linear()](https://humanpred.github.io/pknca/reference/sparse_auc_weight_linear.html)
 :::

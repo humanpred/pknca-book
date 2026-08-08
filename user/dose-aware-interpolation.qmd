@@ -11,7 +11,7 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 ## Why dose timing matters for interpolation
 
-Standard concentration interpolation (e.g., `interp.extrap.conc()`) assumes a smooth concentration-time curve with no discontinuities. But when a dose is given **at** or **near** the interpolation target time, the correct value depends critically on whether you are asking about the concentration *before* or *after* that dose event.
+Standard concentration interpolation (e.g. `interp.extrap.conc()`) assumes a smooth concentration-time curve with no discontinuities. But when a dose is given **at** or **near** the interpolation target time, the correct value depends critically on whether you are asking about the concentration *before* or *after* that dose event.
 
 **`interp.extrap.conc.dose()`** is the dose-aware version. It accounts for:
 
@@ -28,13 +28,11 @@ Standard concentration interpolation (e.g., `interp.extrap.conc()`) assumes a sm
 | `FALSE` (default) | Return the concentration just **before** the dose event |
 | `TRUE` | Return the concentration just **after** the dose event |
 
-For extravascular doses, there is no instantaneous concentration change at the dose time, so `out.after` only affects the behaviour right at the dose time itself.
-
-For IV bolus, the dose causes an instantaneous jump, so the before/after distinction is pharmacologically meaningful.
+`out.after` has a meaningful effect only at the instant of an IV bolus dose (`route.dose = "intravascular"` with `duration.dose = 0`), where the concentration jumps instantaneously: `FALSE` gives the value from the data before the dose (the trough) and `TRUE` gives the value from the data after the dose. For extravascular doses — and for infusions, which have `duration.dose > 0` — there is no instantaneous jump, so `out.after` makes no difference.
 
 ---
 
-## Shared example data
+## Example data: single oral dose
 
 ```{r}
 # Single-dose oral profile (absorption + elimination)
@@ -58,7 +56,7 @@ ggplot(d, aes(x = time, y = conc)) +
 When the target time is **between** observed samples and does not coincide with a dose, the result equals standard log-linear interpolation.
 
 ```{r}
-# t = 4h falls between t=3 and t=5
+# t = 4 h falls between t = 3 and t = 5
 interp.extrap.conc.dose(
   conc       = conc,
   time       = time,
@@ -104,26 +102,37 @@ interp.extrap.conc.dose(
 
 ## At the dose time: IV bolus (intravascular)
 
-For an IV bolus, the dose causes an instantaneous concentration jump. `out.after = FALSE` returns the pre-dose (trough) concentration; `out.after = TRUE` returns the post-dose concentration.
+For an IV bolus — indicated by `route.dose = "intravascular"` together with `duration.dose = 0` — the dose causes an instantaneous concentration jump. `out.after = FALSE` returns the pre-dose (trough) concentration; `out.after = TRUE` returns the post-dose concentration.
 
 ```{r}
-# IV profile: C0 = 10 after dose, declines monoexponentially
-conc_iv <- c(10,  8,  6,  4,  2.5, 1.5)
-time_iv <- c(0,   1,  2,  4,  6,   9  )
+# Two IV bolus doses (t=0 and t=6); the t=6 sample is the pre-dose trough
+conc_iv <- c(10,  8,  6,  4,  2.5, 9,  6)
+time_iv <- c(0,   1,  2,  4,  6,   7,  9)
 
-# Before second dose at t=6 — return the trough
+# Just before the second dose at t=6: the observed trough
 interp.extrap.conc.dose(
   conc       = conc_iv, time = time_iv,
-  time.dose  = 0, route.dose = "intravascular",
+  time.dose  = c(0, 6), route.dose = "intravascular", duration.dose = 0,
   time.out   = 6, out.after  = FALSE
 )
 ```
+
+```{r}
+# Just after the second dose at t=6: the post-dose concentration
+interp.extrap.conc.dose(
+  conc       = conc_iv, time = time_iv,
+  time.dose  = c(0, 6), route.dose = "intravascular", duration.dose = 0,
+  time.out   = 6, out.after  = TRUE
+)
+```
+
+The pre-dose value is the measured trough (2.5). The post-dose value (about 11.0) is estimated the same way as `pk.calc.c0()`: log-slope back-extrapolation from the concentrations measured after the dose.
 
 ---
 
 ## Multiple dose times
 
-Provide a vector to `time.dose` when multiple doses were given during the sampling window.
+The IV bolus example above already passed two dose times — `time.dose` accepts a vector whenever multiple doses were given during the sampling window. Here is the same two-dose scenario with oral dosing.
 
 ```{r}
 # Oral doses at t=0 and t=6
@@ -160,13 +169,39 @@ For IV infusions, supply `duration.dose` (the infusion duration in the same time
 conc_inf <- c(0, 3,  5,  4.5, 3,  2,  1  )
 time_inf <- c(0, 0.25, 0.5, 1, 2, 4, 8  )
 
-# At end of infusion (t=0.5): concentration is the measured peak
+# During the infusion, between the samples at t=0.25 and t=0.5
 interp.extrap.conc.dose(
   conc          = conc_inf, time = time_inf,
   time.dose     = 0,
   route.dose    = "intravascular",
   duration.dose = 0.5,
-  time.out      = 0.5, out.after = FALSE
+  time.out      = 0.4, out.after = FALSE
+)
+```
+
+Because `duration.dose > 0`, the dose is treated as an infusion rather than a bolus: there is no instantaneous jump at t = 0, and concentrations during the infusion are interpolated between the observed samples (here 4.2, between the 3 and 5 measurements).
+
+---
+
+## Extrapolating beyond the last sample
+
+Returning to the single oral-dose profile from the top of the page (last sample at t = 10): extrapolation past the last measured concentration requires an elimination rate. Pass `lambda.z` (forwarded via `...` to the extrapolation functions); without it, the result is `NA`.
+
+```{r}
+# t=14 is beyond the last sample (t=10); without lambda.z the result is NA
+interp.extrap.conc.dose(
+  conc       = conc, time = time,
+  time.dose  = 0, route.dose = "extravascular",
+  time.out   = 14
+)
+```
+
+```{r}
+# With lambda.z, extrapolation follows clast * exp(-lambda.z * (t - tlast))
+interp.extrap.conc.dose(
+  conc       = conc, time = time,
+  time.dose  = 0, route.dose = "extravascular",
+  time.out   = 14, lambda.z = 0.25
 )
 ```
 
@@ -174,9 +209,9 @@ interp.extrap.conc.dose(
 
 ## How PKNCA uses `interp.extrap.conc.dose()` internally
 
-PKNCA calls this function automatically whenever an interval boundary (the `start` or `end` of an interval in your intervals data frame) falls at a dose time. You normally never call it directly.
+PKNCA calls this function automatically whenever an interval boundary (the `start` or `end` of an interval in your intervals data frame) falls at a dose time — see [Selection of Calculation Intervals](https://humanpred.github.io/pknca/articles/v03-selection-of-calculation-intervals.html) for how boundaries are chosen. You normally never call it directly.
 
-Understanding its behaviour helps diagnose unusual NCA results when dosing and sampling times coincide — for example, when `start = tau` (the trough time) is also the time of the next dose.
+Understanding its behavior helps diagnose unusual NCA results when dosing and sampling times coincide — for example, when an interval boundary such as `end = tau` coincides with the next dose (the trough sample time). Every combination of dose events and observations, and the method used for each, is tabulated in the [complete methods table](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html#appendix-complete-methods-table) of the dose-aware interpolation vignette.
 
 ---
 
@@ -187,15 +222,17 @@ Understanding its behaviour helps diagnose unusual NCA results when dosing and s
 | `conc` | Yes | Observed concentrations |
 | `time` | Yes | Observation times (same units as `time.dose`) |
 | `time.dose` | Yes | Time(s) at which doses were given |
-| `route.dose` | Yes | `"extravascular"` or `"intravascular"` |
-| `duration.dose` | No | Infusion duration (NA = bolus) |
+| `route.dose` | No (default `"extravascular"`) | `"extravascular"` or `"intravascular"`; scalar or one value per dose |
+| `duration.dose` | No (default `NA`) | Dose duration: `0` marks an IV bolus, a positive value an infusion; scalar or one value per dose |
 | `time.out` | Yes | Target time at which to interpolate/extrapolate |
-| `out.after` | No (default `FALSE`) | `FALSE` = before dose; `TRUE` = after dose |
+| `out.after` | No (default `FALSE`) | `FALSE` = before dose; `TRUE` = after dose (only meaningful at the instant of an IV bolus) |
 | `options` | No | PKNCA options list (controls AUC method / interpolation rule) |
+
+The table is abridged: `interp.extrap.conc.dose()` also accepts `conc.blq` and `conc.na` (BLQ and `NA` concentration handling), `check` (input validation), and `...` (passed through to the interpolation/extrapolation functions, e.g. `lambda.z`).
 
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.dose.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html)
+**pkgdown reference:** [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [pk.calc.c0()](https://humanpred.github.io/pknca/reference/pk.calc.c0.html)
 :::

@@ -5,11 +5,10 @@ title: "Regulatory and CDISC Context"
 ```{r setup, include=FALSE}
 library(PKNCA)
 library(dplyr)
-library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-PKNCA does not include a dedicated CDISC submission function. What it does provide is a tidy, long-format result table whose structure maps directly onto the CDISC PP (Pharmacokinetic Parameters) domain. This page documents that mapping and describes how to prepare outputs for regulatory submissions.
+PKNCA does not build a complete submission dataset for you, but it comes close: its tidy, long-format result table maps directly onto the CDISC PP (Pharmacokinetic Parameters) domain, and as of version 0.12.2 `as.data.frame()` can translate parameter codes into CDISC standard codes directly (see the CDISC output format section below). This page documents that mapping and describes how to prepare outputs for regulatory submissions. For PKNCA's regulator-facing overview, see [PKNCA – an R package for noncompartmental analysis](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
 
 ```{r build-result, include=FALSE}
 data("Theoph")
@@ -21,14 +20,14 @@ d_dose <- PKNCAdose(
   Dose ~ Time | Subject
 )
 d_data <- PKNCAdata(d_conc, d_dose)
-suppressMessages(o_nca <- pk.nca(d_data))
+o_nca <- pk.nca(d_data)
 ```
 
 ---
 
-## 1. CDISC PP Domain Alignment
+## CDISC PP domain alignment
 
-The CDISC PP domain stores one parameter value per row, with the parameter code in `PPTESTCD`, the numeric result in `PPORRES`, and the standardized result in `PPSTRES` (character) when a units table is provided. PKNCA's `as.data.frame()` output follows exactly this long-format convention.
+The CDISC PP domain stores one parameter value per row, with the parameter code in `PPTESTCD` and the original result in `PPORRES`. When a units table is provided, PKNCA additionally fills its own standardized-result column, `PPSTRES`; the corresponding CDISC SDTM variables are `PPSTRESC` (character) and `PPSTRESN` (numeric). PKNCA's `as.data.frame()` output follows exactly this long-format convention.
 
 ```{r result-columns}
 df <- as.data.frame(o_nca)
@@ -43,10 +42,10 @@ The columns map to CDISC PP variables as follows:
 | `PPORRES`    | `PPORRES`         | Original numeric result (character in CDISC; numeric here) |
 | `start`      | —                 | Interval start time; useful for `PPRFTDTC` derivation |
 | `end`        | —                 | Interval end time                                      |
-| `exclude`    | `PPEXCLFL` / `PPDRVFL` | Non-`NA` string gives the exclusion reason        |
+| `exclude`    | `PPSTAT` / `PPREASND` (or a supplemental qualifier) | Non-`NA` string gives the exclusion reason |
 | Grouping columns (`Subject`, etc.) | `USUBJID`, `PPCAT` | Pass through unchanged |
 
-Units (`PPORRESU`, `PPSTRESU`) are available when you configure a units table via `pknca_units_table()` and pass it to `PKNCAdata()`. Without a units table, `PPORRES` carries the raw numeric value and unit derivation must be done externally.
+Units (`PPORRESU`, `PPSTRESU`) are available when you configure a units table via `pknca_units_table()` and pass it to `PKNCAdata()`. Without a units table, `PPORRES` carries the raw numeric value and unit derivation must be done externally. For the full units workflow, see the [Units chapter](units.qmd) and [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html).
 
 ```{r result-head}
 head(df, 10)
@@ -54,7 +53,7 @@ head(df, 10)
 
 ---
 
-## 2. Grouping Columns as CDISC Identifiers
+## Grouping columns as CDISC identifiers
 
 Whatever grouping structure you define in `PKNCAconc()` — subject ID, analyte, treatment, period — those column names carry through unchanged into `as.data.frame(o_nca)`. They become the basis for `USUBJID`, `PPCAT` (analyte/treatment), and other PP domain identifiers.
 
@@ -79,20 +78,15 @@ All grouping variables will appear as columns in the long-format result, ready t
 
 ---
 
-## 3. Extracting Results for Submission
+## Extracting results for submission
 
-`as.data.frame(o_nca)` returns the individual (subject-level) long-format table. This is the primary output for PP domain construction:
+`as.data.frame(o_nca)` returns the individual (subject-level) long-format table. This is the primary output for PP domain construction. The `PPTESTCD` and `PPORRES` columns are already CDISC-named, so no renaming is needed:
 
 ```{r extract-individual}
 pp_domain_draft <- as.data.frame(o_nca)
 
-# Rename to CDISC column names as needed
+# PPSTRESN is typically the same as PPORRES for numeric results
 pp_cdisc <- pp_domain_draft |>
-  rename(
-    PPORRES  = PPORRES,    # already CDISC-named
-    PPTESTCD = PPTESTCD    # already CDISC-named
-  ) |>
-  # PPSTRESN is typically the same as PPORRES for numeric results
   mutate(PPSTRESN = PPORRES)
 
 head(pp_cdisc)
@@ -102,25 +96,41 @@ The result is in tidy long format: one row per subject per parameter per interva
 
 ---
 
-## 4. The `exclude` Column
+## CDISC output format (≥ 0.12.2)
+
+The long-format extraction above keeps PKNCA's own parameter codes in `PPTESTCD` — `auclast`, `cmax`, `lambda.z`, and so on. For submission datasets, `as.data.frame()` can translate those codes for you: `out_format = "cdisc"` replaces each `PPTESTCD` with its CDISC submission code (`auclast` becomes `AUCLST`, `clast.obs` becomes `CLST`, `lambda.z` becomes `LAMZ`) and inserts a `PPTEST` column carrying the standard parameter label. Route-dependent parameters resolve to the correct code based on the route recorded in the dose data.
+
+```{r cdisc-format}
+as.data.frame(o_nca, out_format = "cdisc") |>
+  select(Subject, PPTESTCD, PPTEST, PPORRES) |>
+  head(8)
+```
+
+When an interval-based parameter is requested (for example `aucint.last`, whose CDISC code `AUCINT` contains "INT"), the CDISC output also gains `PPSTINT` and `PPENINT` columns giving the interval start and end as ISO 8601 durations relative to the last dose time (e.g. `PT0H`, `PT12H`).
+
+Custom parameters registered with `add.interval.col()` can declare their own CDISC codes through its `pptestcd_cdisc` and `pptest_cdisc` arguments; a parameter without a declared code keeps its PKNCA name in the CDISC output. See the [Writing Custom Parameter Functions chapter](custom-parameters.qmd).
+
+---
+
+## The `exclude` column
 
 The `exclude` column records whether a result was flagged for exclusion and why. When `exclude` is `NA`, the result is valid. When it is a non-`NA` character string, it contains a human-readable exclusion reason.
 
 ```{r exclude-col}
-# All possible exclusion reasons in this result
+# How many rows are flagged for exclusion?
 table(is.na(df$exclude))
 
 # Show any excluded rows
 df |> filter(!is.na(exclude)) |> head()
 ```
 
-Exclusions are set programmatically via the `exclude_nca_*` family of functions (e.g., `exclude_nca_max.aucinf.pext()`, `exclude_nca_min.hl.r.squared()`), or manually via `exclude()`. For regulatory submissions, include all rows in the PP domain — both included and excluded — and map the `exclude` string to `PPEXCLFL = "Y"` with the reason preserved in a supplemental qualifier.
+Exclusions are set programmatically via the `exclude_nca_*` family of functions (e.g. `exclude_nca_max.aucinf.pext()`, `exclude_nca_min.hl.r.squared()`), or manually via `exclude()`. The rule functions supply their own exclusion reason text (e.g. `exclude_nca_min.hl.r.squared(0.9)` records `r.squared < 0.9`), so no `reason=` argument is needed. For regulatory submissions, include all rows in the PP domain — both included and excluded. Exclusion is typically represented via `PPSTAT`/`PPREASND` (status and reason not done) or a supplemental qualifier; PKNCA's `exclude` column provides the source text for whichever convention your submission uses. Exclusion workflows are covered in the [Post-Processing chapter](postprocessing.qmd) and [vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
 
 ```{r exclude-nca-example}
 # Apply standard exclusion rules and inspect excluded rows
 o_nca_excl <- o_nca |>
-  exclude(reason = "r.squared < 0.9",   FUN = exclude_nca_min.hl.r.squared(0.9)) |>
-  exclude(reason = "%AUCextrap > 20%",  FUN = exclude_nca_max.aucinf.pext(20))
+  exclude(FUN = exclude_nca_min.hl.r.squared(0.9)) |>
+  exclude(FUN = exclude_nca_max.aucinf.pext(20))
 
 df_excl <- as.data.frame(o_nca_excl)
 df_excl |> filter(!is.na(exclude)) |> select(Subject, PPTESTCD, PPORRES, exclude) |> head()
@@ -128,19 +138,19 @@ df_excl |> filter(!is.na(exclude)) |> select(Subject, PPTESTCD, PPORRES, exclude
 
 ---
 
-## 5. Summary Table for Reports
+## Summary table for reports
 
-`summary(o_nca)` returns a wide-format table suitable for clinical study reports. Each row is a parameter and each column is a summary statistic (geometric mean, CV%, range, etc.):
+`summary(o_nca)` returns a wide-format table suitable for clinical study reports. Each row is a group/interval and each parameter gets a column, with cells formatted as "point [spread]" (geometric mean [CV%] by default):
 
 ```{r summary-table}
 summary(o_nca)
 ```
 
-The summary uses the `PKNCA.set.summary()` configuration for each parameter type. You can customize which statistics are reported and their formatting by calling `PKNCA.set.summary()` before running `pk.nca()`.
+The summary uses the `PKNCA.set.summary()` configuration for each parameter type. You can customize which statistics are reported and their formatting by calling `PKNCA.set.summary()` before calling `summary()`.
 
 ---
 
-## 6. Reproducibility: Pinning Options and Environment
+## Reproducibility: pinning options and environment
 
 For regulatory analyses, the PKNCA option set used during the run must be documented. `PKNCA.options()` with no arguments returns the full current option set:
 
@@ -156,8 +166,8 @@ analysis_options$conc.blq        # BLQ handling
 Set any non-default options at the top of the analysis script, before any data is processed:
 
 ```{r set-options, eval=FALSE}
-# Example: use log-linear trapezoid instead of linear-up/log-down
-PKNCA.options(auc.method = "lin-log")
+# Example: force the plain linear trapezoidal rule everywhere
+PKNCA.options(auc.method = "linear")
 ```
 
 For full reproducibility, record the session environment alongside the option snapshot:
@@ -183,5 +193,5 @@ Together, `PKNCA.options()`, `sessionInfo()`, and `renv` provide the three layer
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame.PKNCAresults()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_*()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

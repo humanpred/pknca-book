@@ -12,17 +12,18 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ## Why units matter
 
 By default PKNCA returns bare numbers. When you provide units, every row in
-`as.data.frame()` gains CDISC-style columns that mirror the SDTM PK-Parameters
-domain:
+`as.data.frame()` gains columns that mirror the CDISC SDTM (Study Data
+Tabulation Model) PP (PK Parameters) domain:
 
 | Column | Meaning |
 |--------|---------|
 | `PPORRESU` | Original reporting unit (the unit the result is expressed in) |
-| `PPSTRESU` | Standardised unit (populated when a conversion is requested) |
-| `PPSTRES` | Result expressed in the standardised unit |
+| `PPSTRESU` | Standardized unit (populated when a conversion is requested) |
+| `PPSTRES` | Result expressed in the standardized unit |
 
 This makes the output submission-ready and prevents silent unit mismatches when
-combining results from multiple studies or analytes.
+combining results from multiple studies or analytes. See also the package
+vignette [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html).
 
 ---
 
@@ -34,9 +35,9 @@ string per row.
 
 ### Arguments in `PKNCAconc()`
 
-Verified with:
+You can list the full argument set (the unit arguments are at the end) with:
 
-```r
+```{r}
 formals(getS3method("PKNCAconc", "data.frame")) |> names()
 ```
 
@@ -51,7 +52,7 @@ The unit-related arguments are:
 
 ### Arguments in `PKNCAdose()`
 
-- `doseu` — dose unit (e.g. `"mg"`)
+- `doseu` — dose unit (e.g. `"mg"`); like the `PKNCAconc()` unit arguments, it also accepts the name of a column in the dose data holding per-row unit strings
 - `doseu_pref` — preferred output unit for dose (triggers conversion)
 
 ### Example: units as string literals
@@ -59,8 +60,8 @@ The unit-related arguments are:
 ```{r}
 Theoph_df <- as.data.frame(Theoph)
 d_dose <- Theoph_df |>
-  dplyr::filter(Time == 0) |>
-  dplyr::mutate(amt = Dose * Wt)
+  filter(Time == 0) |>
+  mutate(amt = Dose * Wt)
 
 o_conc <- PKNCAconc(Theoph_df, conc ~ Time | Subject,
                     concu = "mg/L", timeu = "h")
@@ -69,11 +70,11 @@ o_dose <- PKNCAdose(d_dose, amt ~ Time | Subject,
                     doseu = "mg")
 ```
 
-### Example: units from a data column
+### Example: units from a data column (≥ 0.12.0)
 
 ```{r}
 Theoph_units <- Theoph_df |>
-  dplyr::mutate(conc_unit = "mg/L", time_unit = "h")
+  mutate(conc_unit = "mg/L", time_unit = "h")
 
 o_conc_col <- PKNCAconc(Theoph_units, conc ~ Time | Subject,
                         concu = "conc_unit", timeu = "time_unit")
@@ -90,16 +91,16 @@ In PKNCA ≥ 0.12.2, `pknca_units_table()` is an **S3 generic**. The most useful
 
 ```{r}
 # Units already embedded in the data objects
-o_conc_u <- PKNCAconc(as.data.frame(Theoph) |> dplyr::rename(time=Time, subject=Subject),
+o_conc_u <- PKNCAconc(as.data.frame(Theoph) |> rename(time=Time, subject=Subject),
                        conc ~ time | subject, concu = "mg/L", timeu = "h")
 o_dose_u <- PKNCAdose(
   as.data.frame(Theoph) |>
-    dplyr::group_by(Subject) |>
-    dplyr::summarise(dose = Dose[1]*Wt[1], .groups="drop") |>
-    dplyr::rename(subject=Subject) |>
-    dplyr::mutate(time = 0),
+    group_by(Subject) |>
+    summarise(dose = Dose[1]*Wt[1], .groups="drop") |>
+    rename(subject=Subject) |>
+    mutate(time = 0),
   dose ~ time | subject, route = "extravascular",
-  doseu = "mg", timeu = "h"
+  doseu = "mg"
 )
 o_data_u <- PKNCAdata(o_conc_u, o_dose_u)
 
@@ -146,29 +147,37 @@ u[u$PPTESTCD %in% c("cmax", "auclast", "tmax", "cl.obs", "vz.obs"), ]
 
 ## Passing the units table to `PKNCAdata()`
 
-Pass the table via the `units` argument. If `units` is provided, any units
-given directly to `PKNCAconc()` or `PKNCAdose()` are ignored.
+Pass the table via the `units` argument, reusing `u` from above. If `units` is
+provided, it takes precedence: any units given directly to `PKNCAconc()` or
+`PKNCAdose()` are ignored. The example below sets a deliberately different
+concentration unit (`ng/mL`) on the `PKNCAconc` object to demonstrate this —
+the results report `mg/L` from the table.
 
 ```{r}
-# Build objects (units here will be overridden by the table below)
-o_conc2 <- PKNCAconc(Theoph_df, conc ~ Time | Subject)
-o_dose2  <- PKNCAdose(d_dose, amt ~ Time | Subject)
+# Units set on the objects are superseded by the units table passed to PKNCAdata()
+o_conc2 <- PKNCAconc(Theoph_df, conc ~ Time | Subject,
+                     concu = "ng/mL", timeu = "h")
+o_dose2  <- PKNCAdose(d_dose, amt ~ Time | Subject, doseu = "mg")
 
-u <- pknca_units_table(concu = "mg/L", timeu = "h",
-                       doseu = "mg", amountu = "mg")
-
-o_data <- PKNCAdata(o_conc2, o_dose2, units = u)
+o_data <- PKNCAdata(o_conc2, o_dose2, units = u)  # u built in the section above
 
 # Run NCA
 res <- pk.nca(o_data)
 
-# Units appear in the PPORRESU column
+# Units appear in the PPORRESU column: mg/L from the table,
+# not the ng/mL set on the object
 df <- as.data.frame(res)
+stopifnot("PPORRESU" %in% names(df))  # unit column present on every row
+
 df |>
-  dplyr::filter(Subject == "1",
-                PPTESTCD %in% c("auclast", "cmax", "tmax", "cl.obs")) |>
-  dplyr::select(PPTESTCD, PPORRES, PPORRESU)
+  filter(Subject == "1",
+                PPTESTCD %in% c("auclast", "cmax", "tmax")) |>
+  select(PPTESTCD, PPORRES, PPORRESU)
 ```
+
+Whenever a units table is in effect, `PPORRESU` is populated for every result
+row. The standardized-unit columns `PPSTRESU` and `PPSTRES` appear only when
+preferred or custom conversions are requested, as the next sections show.
 
 ---
 
@@ -188,7 +197,7 @@ When preferred units are active the results data frame gains:
 u_pref <- pknca_units_table(
   concu = "mg/L", timeu  = "h",
   doseu = "mg",   amountu = "mg",
-  concu_pref = "ug/L",   # mg/L → ug/L  (× 1 000)
+  concu_pref = "ug/L",   # mg/L → ug/L  (× 1000)
   timeu_pref = "day"     # h   → day   (× 1/24)
 )
 
@@ -201,9 +210,9 @@ o_data_pref <- PKNCAdata(o_conc2, o_dose2, units = u_pref)
 res_pref <- pk.nca(o_data_pref)
 
 as.data.frame(res_pref) |>
-  dplyr::filter(Subject == "1",
+  filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "cmax", "tmax")) |>
-  dplyr::select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
+  select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
 ```
 
 `PPORRES`/`PPORRESU` hold the original value and unit; `PPSTRES`/`PPSTRESU`
@@ -215,7 +224,8 @@ hold the converted value and unit.
 
 For conversions PKNCA cannot derive automatically (e.g. mass ↔ molar, or a
 non-standard reporting preference), pass a `conversions` data frame to
-`pknca_units_table()`.
+`pknca_units_table()`. For a molar-conversion example and per-analyte unit
+tables, see [the vignette's analyte section](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html#how-do-i-add-different-unit-conversions-for-different-analytes).
 
 ### Required columns
 
@@ -246,31 +256,56 @@ o_data_custom <- PKNCAdata(o_conc2, o_dose2, units = u_custom)
 res_custom    <- pk.nca(o_data_custom)
 
 as.data.frame(res_custom) |>
-  dplyr::filter(Subject == "1",
+  filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "cmax")) |>
-  dplyr::select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
+  select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
 ```
 
 ---
 
-## Verifying units in results
+## Allowing partial units (≥ 0.12.0)
 
-Call `as.data.frame()` on the `PKNCAresults` object. When a units table was
-provided, the `PPORRESU` column is always populated; `PPSTRESU` and `PPSTRES`
-appear only when preferred or custom conversions are in effect.
+`pknca_units_table()` always returns a complete table, but a hand-edited or
+reused units table can end up missing entries for some of the parameters an
+analysis requests. By default PKNCA treats that as an error when `pk.nca()`
+runs, so no partially-unitless results are produced by accident. Here the
+`half.life` and `tmax` rows are removed from the table built above:
 
 ```{r}
-df_all <- as.data.frame(res)
+u_partial <- u |> filter(!(PPTESTCD %in% c("half.life", "tmax")))
 
-# Confirm PPORRESU is present for every row
-stopifnot("PPORRESU" %in% names(df_all))
+o_data_partial <- PKNCAdata(o_conc2, o_dose2, units = u_partial)
 
-# Browse the first several parameter results for subject 1
-df_all |>
-  dplyr::filter(Subject == "1") |>
-  dplyr::select(PPTESTCD, PPORRES, PPORRESU) |>
-  head(10)
+# The missing entries are an error when the calculation runs
+tryCatch(
+  pk.nca(o_data_partial),
+  error = function(e) cat("Error:", conditionMessage(e), "\n")
+)
 ```
+
+Setting `allow_partial_missing_units = TRUE` converts that error to a warning
+so the run completes. It can be set per-analysis through the `options` argument
+of `PKNCAdata()` (as below) or globally with
+`PKNCA.options(allow_partial_missing_units = TRUE)`:
+
+```{r}
+o_data_partial_ok <- PKNCAdata(
+  o_conc2, o_dose2, units = u_partial,
+  options = list(allow_partial_missing_units = TRUE)
+)
+res_partial <- pk.nca(o_data_partial_ok)
+
+as.data.frame(res_partial) |>
+  filter(Subject == "1",
+                PPTESTCD %in% c("cmax", "tmax", "half.life")) |>
+  select(PPTESTCD, PPORRES, PPORRESU)
+```
+
+The warning above names the parameters that lack units; it is expected here and
+should be reviewed, not silenced. The affected parameters (`tmax`,
+`half.life`) are still calculated but reported without a unit — their
+`PPORRESU` is `NA` — while parameters present in the table (`cmax`) keep
+theirs.
 
 ---
 
@@ -285,11 +320,11 @@ df_all |>
 | Custom / non-metric conversions | `conversions` argument in `pknca_units_table()` |
 | Inspect units in results | `as.data.frame(res)$PPORRESU` |
 | Extract units from a PKNCAdata object (≥ 0.12.2) | `pknca_units_table(o_data)` |
-| Allow some parameters without units (≥ 0.12.2) | `PKNCA.options(allow_partial_missing_units = TRUE)` |
+| Allow some parameters without units (≥ 0.12.0) | `PKNCA.options(allow_partial_missing_units = TRUE)` |
 
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

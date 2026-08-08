@@ -2,7 +2,7 @@
 
 [![Render and deploy book](https://github.com/humanpred/pknca-book/actions/workflows/book.yml/badge.svg)](https://github.com/humanpred/pknca-book/actions/workflows/book.yml)
 
-A comprehensive **Quarto book** documenting the [PKNCA](https://github.com/humanpred/pknca) R package (≥ 0.12.2) with runnable examples throughout. Every function, option, and parameter is verified against live PKNCA output.
+A comprehensive **Quarto book** documenting the [PKNCA](https://github.com/humanpred/pknca) R package (≥ 0.12.2) with runnable examples throughout. Every parameter, option, and user-facing function is covered and verified against live PKNCA output; the underlying `pk.calc.*` calculation functions are indexed in the Developer Reference.
 
 **Live book:** https://humanpred.github.io/pknca-book/
 
@@ -27,31 +27,31 @@ open _book/index.html
 | Chapter | Topics |
 |---|---|
 | [Workflow](user/workflow.qmd) | PKNCAconc → PKNCAdose → PKNCAdata → pk.nca; all 21 options with defaults |
-| [Interval selection & parameter catalogue](user/intervals.qmd) | Interval data frame structure; group matching; all 143 calculable parameters |
+| [Interval selection & parameter catalog](user/intervals.qmd) | Interval data frame structure; group matching; the full parameter catalog, rendered live from the registry |
 | [AUC types & integration methods](user/auc-methods.qmd) | auclast/aucall/aucinf; partial AUC; lin up/log down vs linear vs lin-log; aucabove; time_above; AUMC; cav.int |
 | [Half-life & terminal phase](user/halflife.qmd) | Curve stripping; adj.r.squared.factor; quality filters; Tobit regression; lambda.z.corrxy |
 | [Extravascular (oral/SC)](user/extravascular.qmd) | BLQ handling; imputation strategies; tmin; lag time; multiple peaks |
 | [Intravascular (IV)](user/intravascular.qmd) | IV bolus NCA; C0 back-extrapolation; IV infusion with ceoi; MRT correction |
 | [Multiple-dose / steady-state](user/multiple-dose.qmd) | deg.fluc; swing; PTR; Cav; tau detection |
-| [Urine excretion](user/urine-excretion.qmd) | ae; fe; clr.*; volpk; ermax/ertmax/ertlst; clr.*.dn |
-| [Sparse PK sampling](user/sparse.qmd) | sparse_auclast + SE + df; sparse AUMC; mrt/cl/kel.sparse.last |
 | [Superposition](user/superposition.qmd) | Predicting multiple-dose profiles from single-dose data |
 | [Time to steady state](user/tss.qmd) | pk.tss.monoexponential; pk.tss.stepwise.linear; pk.tss |
+| [Urine excretion](user/urine-excretion.qmd) | ae; fe; clr.*; volpk; ermax/ertmax/ertlst; clr.*.dn |
+| [Sparse PK sampling](user/sparse.qmd) | sparse_auclast + SE + df; sparse AUMC; mrt/cl/kel.sparse.last |
 | [Post-processing](user/postprocessing.qmd) | exclude(); normalize(); 17 .dn parameters; PKNCA.set.summary; get_halflife_points |
 | [Units](user/units.qmd) | pknca_units_table() S3 generic; PKNCAdata method; preferred units; conversions |
 | [Imputation](user/imputation.qmd) | start_conc0; start_predose; start_cmin; custom imputation methods |
 | [Dose-aware interpolation](user/dose-aware-interpolation.qmd) | interp.extrap.conc.dose; .dose AUCint variants |
 | [Custom parameters](user/custom-parameters.qmd) | add.interval.col; registering new NCA parameters |
 | [Utility functions](user/utilities.qmd) | geomean; geocv; clean.conc.*; assert_conc_time |
-| [Regulatory & CDISC](user/regulatory.qmd) | PP domain column mapping; exclude → PPEXCLFL; summary() for CSR tables |
+| [Regulatory & CDISC](user/regulatory.qmd) | PP domain column mapping; CDISC output format; exclusion tracking; summary() for CSR tables |
 | [Validation & testing](user/validation.qmd) | testthat suite; version pinning; manual AUClast spot-check |
 
 ### Developer Reference (2 chapters)
 
 | Chapter | Topics |
 |---|---|
-| [Function dependencies](dev/function-deps.qmd) | Parameter dependency graph |
 | [Architecture](dev/architecture.qmd) | Internal structure of PKNCA |
+| [Function dependencies](dev/function-deps.qmd) | Parameter dependency graph |
 
 ## What's new in PKNCA 0.12.2
 

@@ -9,14 +9,14 @@ library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-## The Five-Step Workflow
+## The five-step workflow
 
 Every PKNCA analysis follows the same five steps regardless of route or complexity.
 
 ```{mermaid}
 flowchart TD
-    S1["① Prepare data<br/>concentration data.frame<br/>dose data.frame"] --> S2
-    S2["② PKNCAconc()<br/>define conc column, time column,<br/>grouping variables, route-specific args"] --> S3
+    S1["① Prepare data<br/>concentration data frame<br/>dose data frame"] --> S2
+    S2["② PKNCAconc()<br/>define conc column, time column,<br/>grouping variables, optional args (duration, volume)"] --> S3
     S3["③ PKNCAdose()<br/>define dose, time, route<br/>(intravascular / extravascular)"] --> S4
     S4["④ PKNCAdata()<br/>combine conc + dose<br/>specify intervals + imputation + units"] --> S5
     S5["⑤ pk.nca()<br/>run all calculations"] --> S6
@@ -28,11 +28,11 @@ flowchart TD
 
 ## Step-by-step: minimal example
 
-Below is the complete workflow with the built-in `Theoph` dataset (oral theophylline, 12 subjects).
+Below is the complete workflow with the built-in `Theoph` dataset (oral theophylline, 12 subjects). The package vignette [Computing NCA Parameters for Theophylline](https://humanpred.github.io/pknca/articles/v02-example-theophylline.html) works through the same dataset.
 
 ### Step 1 — Prepare your data
 
-PKNCA expects two separate data frames: one for concentrations and one for doses. Both must be in **long format** (one row per observation).
+PKNCA typically takes two separate data frames: one for concentrations and one for doses (dose data are optional, but required for dose-dependent parameters such as CL and Vz). Both must be in **long format** (one row per observation).
 
 ```{r}
 # Built-in oral theophylline dataset
@@ -76,7 +76,7 @@ print(o_dose)
 
 ### Step 4 — PKNCAdata
 
-`PKNCAdata` combines concentration and dose objects. If you don't specify `intervals`, PKNCA automatically determines them from the dosing times.
+`PKNCAdata` combines concentration and dose objects. If you don't specify `intervals`, PKNCA builds defaults: for single-dose data, from the built-in `single.dose.aucs` specification anchored at the dosing times; multiple-dose data get tau-based intervals instead.
 
 ```{r}
 o_data <- PKNCAdata(o_conc, o_dose)
@@ -104,7 +104,7 @@ as.data.frame(o_nca) |> head(20)
 ```
 
 ```{r}
-# Summary table (geometric mean ± CV% by default for most parameters)
+# Summary table (geometric mean and geometric CV% by default for most parameters)
 summary(o_nca)
 ```
 
@@ -115,6 +115,7 @@ summary(o_nca)
 Auto-interval detection works for simple designs. For complex studies (multiple doses, custom windows), define intervals yourself.
 
 An **interval** is a row in a data frame with:
+
 - `start`, `end`: time boundaries
 - One column per parameter set to `TRUE` to request that parameter
 
@@ -139,7 +140,7 @@ as.data.frame(o_nca2)
 
 ## Controlling calculations with PKNCA.options()
 
-`PKNCA.options()` is the global settings registry. Call with no arguments to see all current settings.
+`PKNCA.options()` is the global settings registry. Call with no arguments to see all current settings. See also the vignette [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
 
 ```{r}
 PKNCA.options()
@@ -153,18 +154,22 @@ All options and what they control:
 |---|---|---|
 | `auc.method` | `"lin up/log down"` | Integration rule: `"linear"`, `"lin-log"`, or `"lin up/log down"` |
 
+Each rule is derived in [AUC integration methods](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
+
 **Half-life / λz**
 
 | Option | Default | Effect |
 |---|---|---|
 | `min.hl.points` | `3` | Minimum data points for a valid λz regression |
 | `min.hl.r.squared` | `0.9` | Minimum unadjusted R² for λz acceptance (post-hoc exclusion via `exclude_nca_min.hl.r.squared()`) |
-| `adj.r.squared.factor` | `0.0001` | Selection tolerance: the longest regression window whose adj.R² is within this value of the best adj.R² is chosen (favours more points when fits are nearly equal) |
-| `min.span.ratio` | `2` | Minimum ratio of time span to half-life; rejects regressions over too short a window |
+| `adj.r.squared.factor` | `0.0001` | Selection tolerance: the longest regression window whose adj.R² is within this value of the best adj.R² is chosen (favors more points when fits are nearly equal) |
+| `min.span.ratio` | `2` | Minimum ratio of time span to half-life (post-hoc exclusion via `exclude_nca_span.ratio()`) |
 | `allow.tmax.in.half.life` | `FALSE` | Allow Tmax timepoint in λz regression |
 | `hl_method` | `"log-linear"` | `"log-linear"` (OLS) or `"tobit"` (censored-likelihood, ≥ 0.12.2) |
-| `tobit_n_points_penalty` | `0` | Penalty per extra terminal point in Tobit log-likelihood; positive values favour shorter windows |
-| `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for Tobit optimisation |
+| `tobit_n_points_penalty` | `0` | Exponent in the Tobit window-selection criterion (residual × n^penalty); positive values favor shorter windows (≥ 0.12.2) |
+| `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for Tobit optimization (≥ 0.12.2) |
+
+Details: [Half-Life Calculation](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html) and [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html).
 
 **AUCinf extrapolation**
 
@@ -184,7 +189,7 @@ All options and what they control:
 | Option | Default | Effect |
 |---|---|---|
 | `first.tmax` | `TRUE` | `TRUE` = return first Tmax when tied; `FALSE` = return last |
-| `first.tmin` | `TRUE` | `TRUE` = return first Tmin when tied; `FALSE` = return last |
+| `first.tmin` | `TRUE` | `TRUE` = return first Tmin when tied; `FALSE` = return last (≥ 0.12.2) |
 
 **Summary / output**
 
@@ -193,12 +198,12 @@ All options and what they control:
 | `max.missing` | `0.5` | Maximum fraction of missing values allowed before suppressing a summary statistic |
 | `keep_interval_cols` | `NULL` | Additional columns from the intervals data frame to carry through to results |
 | `allow_partial_missing_units` | `FALSE` | Allow some parameters to lack unit definitions when a units table is provided |
-| `single.dose.aucs` | (list) | Default interval specifications used when no intervals are provided for a single dose |
+| `single.dose.aucs` | (data frame) | Default interval specifications used when no intervals are provided for a single dose |
 | `tau.choices` | `NA` | Candidate dosing intervals (τ) for auto-detection in multiple-dose designs |
 | `progress` | `TRUE` | Show progress bar during `pk.nca()` |
 | `debug` | `NULL` | Enable internal debug output (not for routine use) |
 
-Override for a single analysis by passing `options` to `PKNCAdata()`:
+Override for a single analysis by passing `options` to `PKNCAdata()`. PKNCA has no `update()` method, so to rerun with different settings you build a new `PKNCAdata` object with the new `options` and call `pk.nca()` again:
 
 ```{r}
 o_data_strict <- PKNCAdata(
@@ -213,6 +218,8 @@ o_data_strict <- PKNCAdata(
 ---
 
 ## Extracting and plotting results
+
+`as.data.frame()` returns one row per group per interval per parameter — a tidy shape ready for dplyr and ggplot2. More result-handling patterns: [Post-Processing](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
 
 ```{r}
 results_df <- as.data.frame(o_nca)
@@ -229,20 +236,6 @@ ggplot(auclast_df, aes(x = Subject, y = PPORRES)) +
 
 ---
 
-## Re-running with different options
-
-PKNCA does not have an `update()` method. To rerun with changed settings,
-pass a new `options` list to `PKNCAdata()` and call `pk.nca()` again:
-
-```{r}
-# Change AUC method and recalculate
-o_data_linear <- PKNCAdata(o_conc, o_dose, options = list(auc.method = "linear"))
-o_nca_linear  <- pk.nca(o_data_linear)
-```
-
-
----
-
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [exclude_nca_min.hl.r.squared()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
 :::

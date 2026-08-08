@@ -21,45 +21,46 @@ o_dose <- PKNCAdose(d_dose, dose ~ time | subject, route = "extravascular")
 
 ## AUC types
 
-PKNCA offers four families of AUC, each answering a different question:
-
-```{mermaid}
-flowchart LR
-    A["AUClast<br/>0 → last measurable"]
-    B["AUCall<br/>0 → last, zeros for BLQ"]
-    C["AUCinf.obs<br/>0 → ∞ (observed Clast)"]
-    D["AUCinf.pred<br/>0 → ∞ (predicted Clast)"]
-    E["AUCint / partial<br/>0 → t (any t)"]
-```
+PKNCA offers four families of AUC — AUClast, AUCall, AUCinf (in observed and predicted flavors), and partial/interval AUC — each answering a different question. They differ in where integration ends and in how concentrations below the limit of quantification (BLQ) are treated:
 
 | Parameter | End point | BLQ treatment | When to use |
 |---|---|---|---|
 | `auclast` | Last measurable concentration | BLQs after last non-BLQ are ignored | Default; most studies |
-| `aucall` | Last measured time point | Post-last-measurable BLQs treated as 0 | When you want to include the BLQ tail |
+| `aucall` | Last measured timepoint | Post-last-measurable BLQs treated as 0 | When you want to include the BLQ tail |
 | `aucinf.obs` | Extrapolated to ∞ (using observed Clast) | — | When half-life is reliable |
 | `aucinf.pred` | Extrapolated to ∞ (using predicted Clast from λz fit) | — | When Clast is noisy |
 | `aucint.*` | Any user-defined time window | — | Partial AUC, bioequivalence |
 
+For a worked example computing these AUC flavors on a full dataset, see the [AUC Calculation with PKNCA vignette](https://humanpred.github.io/pknca/articles/v05-auc-calculation-with-PKNCA.html).
+
 ### AUClast vs AUCall
 
+Subject 1's profile ends on a measurable sample (t = 24.37), so there is no BLQ tail and `auclast` equals `aucall` on the raw data. To show the difference, this demo appends a synthetic BLQ tail (concentrations reported as 0 at t = 26 and 28) to a **copy** of the data:
+
 ```{r}
+# Copy of subject 1's profile with a synthetic BLQ tail (reported as 0)
+d_one_blq <- d_one |>
+  select(subject, time, conc) |>
+  mutate(subject = as.character(subject)) |>
+  bind_rows(data.frame(subject = "1", time = c(26, 28), conc = 0))
+
+o_conc_blq <- PKNCAconc(d_one_blq, conc ~ time | subject)
+
 auc_compare <- data.frame(
   start    = 0,
   end      = Inf,
   auclast  = TRUE,
-  aucall   = TRUE,
-  aucinf.obs = TRUE
+  aucall   = TRUE
 )
 
-o_data <- PKNCAdata(o_conc, o_dose, intervals = auc_compare)
-o_nca  <- pk.nca(o_data)
+o_nca_blq <- pk.nca(PKNCAdata(o_conc_blq, o_dose, intervals = auc_compare))
 
-as.data.frame(o_nca) |>
-  filter(PPTESTCD %in% c("auclast", "aucall", "aucinf.obs", "aucpext.obs")) |>
+as.data.frame(o_nca_blq) |>
+  filter(PPTESTCD %in% c("auclast", "aucall")) |>
   select(PPTESTCD, PPORRES)
 ```
 
-> `aucall` ≥ `auclast` when there are post-last-measurable BLQ timepoints, since those are treated as 0 and add a small triangle to the AUC.
+> `aucall` ≥ `auclast` when there are post-last-measurable BLQ timepoints, since those are treated as 0 and add a small triangle to the AUC — here the triangle from Clast at t = 24.37 down to 0 at t = 26.
 
 ---
 
@@ -73,8 +74,7 @@ These calculate AUC over an exact time window, interpolating concentrations at t
 partial_intervals <- data.frame(
   start         = c(0,  0),
   end           = c(4, 12),
-  aucint.last   = TRUE,   # AUC to the last obs within window (or interpolated boundary)
-  aucint.inf.obs = FALSE
+  aucint.last   = TRUE   # AUC to the last obs within window (or interpolated boundary)
 )
 
 o_data_partial <- PKNCAdata(o_conc, o_dose, intervals = partial_intervals)
@@ -98,9 +98,9 @@ as.data.frame(o_nca_partial) |>
 | `aucint.inf.obs.dose` | Same as `.inf.obs` | **Yes** | λz-based tail |
 | `aucint.inf.pred.dose` | Same as `.inf.pred` | **Yes** | λz-based tail |
 
-> **Note:** `aucint.inf.pred` requires that `lambda.z` has been estimated (i.e., that the terminal slope is calculable from the data window).
+> **Note:** `aucint.inf.pred` requires that `lambda.z` has been estimated (i.e. that the terminal slope is calculable from the data window).
 
-The `.dose` variants use **dose-aware interpolation** (`interp.extrap.conc.dose()`) at the interval start and end. This matters when the interval boundary coincides with a dose time — the `.dose` variant correctly handles the before/after concentration jump.
+The `.dose` variants use **dose-aware interpolation** (`interp.extrap.conc.dose()`) at the interval start and end. This matters when the interval boundary coincides with a dose time — the `.dose` variant correctly handles the before/after concentration jump. The full decision rules are in the [dose-aware interpolation and extrapolation vignette](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
 
 ```{r}
 # All partial AUC variants over a single window
@@ -125,10 +125,32 @@ as.data.frame(o_nca_all_partial) |>
 
 ---
 
+## Concentration interpolation at interval boundaries
+
+When a requested interval boundary (e.g. `end = 5`) falls between two observed timepoints, PKNCA interpolates the concentration at that boundary before computing AUC — handled internally by `interp.extrap.conc()`.
+
+The interpolation method matches the AUC method:
+- `"linear"` → linear interpolation
+- `"lin-log"` → linear interpolation before Tmax, log-linear after Tmax
+- `"lin up/log down"` → log-linear interpolation on the descending phase
+
+```{r}
+# end = 5 falls between observed samples t = 3.82 and t = 5.10 for subject 1
+interp_interval <- data.frame(start = 0, end = 5, auclast = TRUE)
+o_nca_interp <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = interp_interval))
+as.data.frame(o_nca_interp) |>
+  filter(PPTESTCD == "auclast") |>
+  select(start, end, PPTESTCD, PPORRES)
+```
+
+For boundaries that coincide with a dose time, the `.dose` variants above use dose-aware interpolation instead — see the [Dose-aware interpolation chapter](dose-aware-interpolation.qmd).
+
+---
+
 ## Percent extrapolation (%AUCextrap)
 
 When using `aucinf`, you should check what fraction was extrapolated beyond the last observation.
-A high `aucpext` means the terminal phase was poorly characterised.
+A high `aucpext` means the terminal phase was poorly characterized.
 
 ```{r}
 pext_interval <- data.frame(
@@ -146,26 +168,33 @@ as.data.frame(o_nca_pext) |>
   select(PPTESTCD, PPORRES)
 ```
 
-The default threshold is `max.aucinf.pext = 20` (%). Results where `aucpext > 20%` are flagged with an `exclude` message. Change the threshold via options:
+Here about 31.5% of `aucinf.obs` is extrapolated — well above the conventional 20% acceptance limit. Note that `pk.nca()` computes `aucpext` but does **not** flag anything on its own: the `exclude` column (not shown above) is all `NA` despite the high extrapolation. Flagging is a manual step with `exclude()` after `pk.nca()`:
 
 ```{r}
-# Stricter: flag if more than 10% is extrapolated
-o_data_strict <- PKNCAdata(o_conc, o_dose, intervals = pext_interval,
-                            options = list(max.aucinf.pext = 10))
-o_nca_strict  <- pk.nca(o_data_strict)
-as.data.frame(o_nca_strict) |>
-  filter(PPTESTCD == "aucinf.obs") |>
+o_nca_pext_excl <- exclude(
+  o_nca_pext,
+  reason = "aucpext.obs > 20%",
+  FUN    = exclude_nca_max.aucinf.pext()
+)
+
+# Show the flagged rows
+as.data.frame(o_nca_pext_excl) |>
+  filter(!is.na(exclude)) |>
   select(PPTESTCD, PPORRES, exclude)
 ```
+
+The `aucinf` results and the parameters derived from them (including `aucpext` itself) are now flagged. Because `FUN` supplies its own exclusion text, the recorded reason is the function's `"aucpext > 20"` rather than the `reason =` string.
+
+The 20% default comes from the `max.aucinf.pext` option — but only the **global** option: called with no argument, `exclude_nca_max.aucinf.pext()` reads `PKNCA.options("max.aucinf.pext")`. A per-object setting such as `PKNCAdata(options = list(max.aucinf.pext = 10))` never reaches the exclusion function (and does not make `pk.nca()` flag anything by itself). To flag at a different threshold, pass it to the function directly: `exclude_nca_max.aucinf.pext(10)`.
 
 ---
 
 ## Integration methods
 
-The integration method controls how the area of each trapezoid is computed between consecutive timepoints.
+The integration method controls how the area of each trapezoid is computed between consecutive timepoints. Each rule, including the zero-concentration fallbacks, is derived in the [AUC integration methods vignette](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
 
 ```{r}
-# Visual comparison of the three methods on one subject
+# Numeric comparison of the three methods on one subject
 methods <- c("linear", "lin-log", "lin up/log down")
 
 results <- lapply(methods, function(m) {
@@ -195,20 +224,17 @@ Overestimates during the descending phase (gives too much weight to the higher c
 Uses **linear** integration from start up to Tmax, and **log-linear** integration from Tmax onward:
 $$\text{AUC}_{t_i \to t_{i+1}} = \frac{(C_i - C_{i+1})}{\ln C_i - \ln C_{i+1}} \times (t_{i+1} - t_i) \quad \text{(post-Tmax)}$$
 
-The switch point is Tmax (not whether concentrations are rising or falling), so any post-Tmax secondary peak is integrated log-linearly even if concentrations are rising. Falls back to linear for any interval where either endpoint is zero. Not recommended — `"lin up/log down"` is strictly better for nearly all use cases as it switches on actual direction rather than Tmax.
+The switch point is Tmax (not whether concentrations are rising or falling), so any post-Tmax secondary peak is integrated log-linearly even if concentrations are rising. Falls back to linear for any interval where either endpoint is zero. Not recommended — `"lin up/log down"` is almost always preferable as it switches on actual direction rather than Tmax.
 
 **Lin up / log down (`"lin up/log down"`) — default**
 
 Hybrid: linear trapezoidal on the ascending phase (when $C_{i+1} \geq C_i$), log-linear on the descending phase (when $C_{i+1} < C_i$). Best of both worlds for most PK profiles.
 
 ```{r}
-# Visualise the three profiles for one subject
+# Profile with AUClast shaded
 d_plot <- d_one |>
   filter(conc > 0) |>
   arrange(time)
-
-# Illustrate the interpolated concentration between two points
-t_seq <- seq(min(d_plot$time), max(d_plot$time), length.out = 200)
 
 ggplot(d_plot, aes(x = time, y = conc)) +
   geom_line(colour = "steelblue", linewidth = 1) +
@@ -227,106 +253,15 @@ ggplot(d_plot, aes(x = time, y = conc)) +
 | IV bolus | `"lin up/log down"` (default) | Profile is entirely declining, so log-linear is used throughout — equivalent to `"lin-log"` for pure bolus but without the Tmax ambiguity |
 | IV infusion with smooth decline | `"lin up/log down"` | Concentrations rise during infusion (linear) then fall after end of infusion (log-linear) |
 | Regulatory (some agencies) | `"linear"` | Some health authorities require the linear trapezoidal rule throughout |
-| Highly irregular profiles with zeros | `"linear"` | Log-linear is undefined when either endpoint is zero; `"linear"` is the safe fallback |
+| Highly irregular profiles with zeros | `"linear"` | Zeros alone are handled per-segment by the log methods (they fall back to linear for those segments); choose `"linear"` when you want the same rule everywhere, e.g. for some regulatory templates |
 | Never recommended | `"lin-log"` | Switches at Tmax rather than on direction of change — gives wrong method for post-Tmax secondary peaks |
 
 ---
 
 ## AUMC — area under the first moment curve
 
-The AUMC is used to compute MRT. It weights concentrations by time:
-$$\text{AUMC} = \int_0^{t} t \cdot C(t) \, dt$$
-
-```{r}
-aumc_interval <- data.frame(
-  start        = 0,
-  end          = Inf,
-  aumclast     = TRUE,
-  aumcinf.obs  = TRUE
-)
-
-o_nca_aumc <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = aumc_interval))
-as.data.frame(o_nca_aumc) |>
-  filter(grepl("^aumc", PPTESTCD)) |>
-  select(PPTESTCD, PPORRES)
-```
-
----
-
-## AUC above a threshold (`aucabove.*`)
-
-`aucabove.*` computes the area under the curve above a reference concentration — useful for quantifying time above a minimum effective concentration or below a toxicity threshold.
-
-| Parameter | Reference concentration |
-|---|---|
-| `aucabove.trough.all` | Ctrough (concentration at end of interval) |
-| `aucabove.predose.all` | Cpredose (concentration at interval start) |
-
-```{r}
-above_interval <- data.frame(
-  start              = 0,
-  end                = 24,
-  aucabove.trough.all  = TRUE,
-  aucabove.predose.all = TRUE,
-  ctrough              = TRUE,
-  cstart               = TRUE
-)
-
-o_nca_above <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = above_interval))
-
-as.data.frame(o_nca_above) |>
-  filter(PPTESTCD %in% c("aucabove.trough.all", "aucabove.predose.all", "ctrough", "cstart")) |>
-  select(PPTESTCD, PPORRES)
-```
-
----
-
-## Time above a threshold (`time_above`)
-
-`time_above` computes the total duration (in time units) for which the concentration exceeds a specified threshold. The threshold is set via the `conc_above` column in the intervals data frame.
-
-```{r}
-# Time above 2 mg/L
-time_above_interval <- data.frame(
-  start      = 0,
-  end        = Inf,
-  time_above = TRUE,
-  conc_above = 2       # threshold concentration (same units as your data)
-)
-
-o_nca_ta <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = time_above_interval))
-
-as.data.frame(o_nca_ta) |>
-  filter(PPTESTCD == "time_above") |>
-  select(PPTESTCD, PPORRES)
-```
-
----
-
-## Total dose (`totdose`)
-
-`totdose` is the total amount administered within the analysis interval — it is extracted from the dose object rather than computed from concentrations. Useful as a reference column in your results data frame.
-
-```{r}
-totdose_interval <- data.frame(
-  start    = 0,
-  end      = Inf,
-  totdose  = TRUE,
-  auclast  = TRUE
-)
-
-o_nca_td <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = totdose_interval))
-
-as.data.frame(o_nca_td) |>
-  filter(PPTESTCD %in% c("totdose", "auclast")) |>
-  select(PPTESTCD, PPORRES)
-```
-
----
-
-## AUMC variants
-
-The **area under the first-moment curve** (AUMC) is used to calculate MRT.
+The **area under the first moment curve** (AUMC) weights concentrations by time and is used to compute mean residence time (MRT):
+$$\text{AUMC} = \int_0^{t_{\mathrm{last}}} t \cdot C(t) \, dt$$
 
 | Parameter | Meaning |
 |---|---|
@@ -354,21 +289,98 @@ as.data.frame(o_nca_aumc) |>
 
 ---
 
-## Cav over a specific interval (`cav.int.*`)
+## Other interval parameters
 
-`cav.int.*` computes the average concentration over a specified window using the trapezoidal rule, without requiring a full dosing-interval design.
+These interval parameters are requested the same way as AUCs and often accompany them.
 
-| Parameter | Window |
+### AUC above a threshold (`aucabove.*`)
+
+`aucabove.*` computes the area under the curve above a reference concentration — useful for quantifying exposure above a minimum effective concentration (for the duration above it, see `time_above`).
+
+| Parameter | Reference concentration |
 |---|---|
-| `cav.int.last` | 0 to last measurable |
-| `cav.int.all` | 0 to last, BLQ = 0 |
-| `cav.int.inf.obs` | 0 to ∞, observed Clast |
-| `cav.int.inf.pred` | 0 to ∞, predicted Clast |
+| `aucabove.trough.all` | Ctrough (concentration at end of interval) |
+| `aucabove.predose.all` | Cpredose (concentration at interval start) |
 
 ```{r}
+# ctrough requires an observation exactly at the interval end —
+# subject 1's last sample is at t = 24.37 (end = 24 would give ctrough = NA)
+above_interval <- data.frame(
+  start              = 0,
+  end                = 24.37,
+  aucabove.trough.all  = TRUE,
+  aucabove.predose.all = TRUE,
+  ctrough              = TRUE,
+  cstart               = TRUE
+)
+
+o_nca_above <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = above_interval))
+
+as.data.frame(o_nca_above) |>
+  filter(PPTESTCD %in% c("aucabove.trough.all", "aucabove.predose.all", "ctrough", "cstart")) |>
+  select(PPTESTCD, PPORRES)
+```
+
+### Time above a threshold (`time_above`)
+
+`time_above` computes the total duration (in time units) for which the concentration exceeds a specified threshold. The threshold is set via the `conc_above` column in the intervals data frame.
+
+```{r}
+# Time above 2 mg/L
+time_above_interval <- data.frame(
+  start      = 0,
+  end        = Inf,
+  time_above = TRUE,
+  conc_above = 2       # threshold concentration (same units as your data)
+)
+
+o_nca_ta <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = time_above_interval))
+
+as.data.frame(o_nca_ta) |>
+  filter(PPTESTCD == "time_above") |>
+  select(PPTESTCD, PPORRES)
+```
+
+### Total dose (`totdose`)
+
+`totdose` is the total amount administered within the analysis interval — it is extracted from the dose object rather than computed from concentrations. Useful as a reference column in your results data frame.
+
+```{r}
+totdose_interval <- data.frame(
+  start    = 0,
+  end      = Inf,
+  totdose  = TRUE,
+  auclast  = TRUE
+)
+
+o_nca_td <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = totdose_interval))
+
+as.data.frame(o_nca_td) |>
+  filter(PPTESTCD %in% c("totdose", "auclast")) |>
+  select(PPTESTCD, PPORRES)
+```
+
+---
+
+### Cav over a specific interval (`cav.int.*`)
+
+`cav.int.*` computes the average concentration over the requested interval, without requiring a full dosing-interval design. The numerator is the corresponding `aucint.*` flavor computed over the window; the divisor is always `end − start`.
+
+> **Warning:** because the divisor is always `end − start`, requesting any `cav.int.*` parameter with `end = Inf` divides a finite AUC by infinity and reports 0 — always use a finite `end`.
+
+| Parameter | Numerator (`aucint.*` flavor over the window) |
+|---|---|
+| `cav.int.last` | `aucint.last` — stops accumulating area at the last measurable concentration |
+| `cav.int.all` | `aucint.all` — post-Tlast BLQ values treated as 0 |
+| `cav.int.inf.obs` | `aucint.inf.obs` — λz extrapolation beyond Tlast, observed Clast |
+| `cav.int.inf.pred` | `aucint.inf.pred` — λz extrapolation beyond Tlast, predicted Clast |
+
+```{r}
+# Two finite windows: 0–24 h lies inside the observed profile (Tlast = 24.37 h),
+# 0–48 h extends past it
 cav_interval <- data.frame(
   start             = 0,
-  end               = Inf,
+  end               = c(24, 48),
   cav.int.last      = TRUE,
   cav.int.all       = TRUE,
   cav.int.inf.obs   = TRUE,
@@ -379,31 +391,13 @@ o_nca_cav <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = cav_interval))
 
 as.data.frame(o_nca_cav) |>
   filter(grepl("^cav.int", PPTESTCD)) |>
-  select(PPTESTCD, PPORRES)
-```
-
----
-
-## Concentration interpolation at interval boundaries
-
-When a requested interval boundary (e.g., `end = 8`) falls between two observed timepoints, PKNCA interpolates the concentration at that boundary before computing AUC.
-
-The interpolation method matches the AUC method:
-- `"linear"` → linear interpolation
-- `"lin up/log down"` → log-linear interpolation on the descending phase
-
-```{r}
-# end=5h falls between t=4 and t=7.02 in the Theoph dataset
-interp_interval <- data.frame(start = 0, end = 5, auclast = TRUE)
-o_nca_interp <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = interp_interval))
-as.data.frame(o_nca_interp) |>
-  filter(PPTESTCD == "auclast") |>
   select(start, end, PPTESTCD, PPORRES)
 ```
 
+Over 0–24 h all four flavors integrate the same observed curve, so they coincide. Over 0–48 h they separate: the `.inf` forms extrapolate the tail beyond Tlast with λz (differing from each other only through the observed vs. predicted Clast — nearly identical here), while `.last` and `.all` stop accumulating area at Tlast yet still divide by the full 48 h, which is why their average drops from 6.08 to 3.07 mg/L.
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.dose.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [interp.extrap.conc.dose()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_max.aucinf.pext()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
 :::

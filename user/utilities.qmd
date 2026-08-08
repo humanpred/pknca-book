@@ -5,7 +5,6 @@ title: "Utility Functions"
 ```{r setup, include=FALSE}
 library(PKNCA)
 library(dplyr)
-library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
@@ -17,7 +16,7 @@ PKNCA exports several lower-level utility functions useful for data preparation,
 
 ## BLQ concentration handling: `clean.conc.blq()`
 
-Applies the BLQ-handling rule to a concentration vector **before** fitting. The full analysis pipeline applies this automatically, but `clean.conc.blq()` is useful for pre-processing or testing your own rule.
+Applies the BLQ-handling rule to a concentration vector **before** calculation. The full analysis pipeline applies this automatically, but `clean.conc.blq()` is useful for pre-processing or testing your own rule.
 
 ```{r}
 conc <- c(0.5, 0.3, 0,    0.1, 0,    0.0, 0.02)
@@ -33,6 +32,7 @@ clean.conc.blq(conc, time, conc.blq = 0.05)
 ```
 
 The `conc.blq` argument accepts:
+
 - `"drop"` — remove BLQ rows
 - `"keep"` — keep BLQ rows as-is
 - A number — substitute BLQ values with that number
@@ -71,11 +71,16 @@ interp.extrap.conc(conc = conc_ex, time = time_ex, time.out = 3)
 ```
 
 ```{r}
-# Extrapolate beyond the last sample (t = 12)
-interp.extrap.conc(conc = conc_ex, time = time_ex, time.out = 12)
+# Extrapolate beyond the last sample (t = 12):
+# estimate lambda.z first, then pass it to interp.extrap.conc()
+hl_ex <- pk.calc.half.life(conc = conc_ex, time = time_ex)
+hl_ex$lambda.z
+
+interp.extrap.conc(conc = conc_ex, time = time_ex, time.out = 12,
+                   lambda.z = hl_ex$lambda.z)
 ```
 
-The method (linear vs log-linear) follows the `auc.method` setting. Extrapolation uses the terminal log-linear slope (requires at least 3 points for λz estimation).
+The method (linear vs log-linear) follows the `auc.method` setting. Extrapolation beyond Tlast requires supplying `lambda.z` (the terminal slope) — the function never estimates λz itself, and without `lambda.z` the result is `NA`. The example above estimates it with `pk.calc.half.life()`, covered next. For interpolation around dose events, see the [Dose-Aware Interpolation chapter](dose-aware-interpolation.qmd) and the vignette [Methods for Dose-Aware Interpolation and Extrapolation](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
 
 ---
 
@@ -117,11 +122,11 @@ Other direct AUC functions:
 | Function | AUC type |
 |---|---|
 | `pk.calc.auc.last()` | AUC to last measurable concentration |
-| `pk.calc.auc.all()` | AUC to last, treating BLQ as 0 |
+| `pk.calc.auc.all()` | AUC to the last observation including post-Tlast BLQ values (as 0) |
 | `pk.calc.auc.inf.obs()` | AUC extrapolated to ∞ (observed Clast) |
 | `pk.calc.auc.inf.pred()` | AUC extrapolated to ∞ (predicted Clast) |
 
-These are the building blocks behind every AUC parameter in the registry.
+These are the building blocks behind every AUC parameter in the registry. Integration methods are compared in [AUC integration methods](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
 
 ---
 
@@ -140,8 +145,9 @@ my_intervals <- data.frame(
 # Returns the full expanded interval spec
 expanded <- check.interval.specification(my_intervals)
 
-# Which parameters are requested?
-names(expanded)[as.logical(expanded[1, ])]
+# Which parameters are requested? (drop the start/end bounds columns first)
+param_cols <- setdiff(names(expanded), c("start", "end"))
+param_cols[sapply(expanded[1, param_cols], isTRUE)]
 ```
 
 ```{r}
@@ -193,20 +199,22 @@ o_dose_inf <- setDuration(o_dose_iv, duration = 0.5)
 o_dose_inf$data[c("route", "duration")]
 ```
 
-This is useful when you want to test how route assumption changes affect MRT or Vss calculations without rebuilding the full `PKNCAdata` object.
+This is useful when you want to test how route assumption changes affect MRT or Vss calculations without re-specifying the `PKNCAdose` object from scratch.
 
 ---
 
-## Getting parameter dependencies: `get.parameter.deps()`
+## Getting parameter dependents: `get.parameter.deps()`
 
-Returns the upstream parameters that a given parameter depends on. Useful when debugging why a parameter is `NA` (a dependency may have failed).
-
-```{r}
-get.parameter.deps("vss.obs")
-```
+Returns the downstream parameters that depend on a given parameter — the results that would be affected if it fails or is excluded.
 
 ```{r}
 get.parameter.deps("half.life")
+```
+
+For the opposite direction — the upstream inputs a parameter needs — read its registry entry:
+
+```{r}
+get.interval.cols()[["vss.obs"]]$depends
 ```
 
 ---
@@ -219,7 +227,11 @@ get.parameter.deps("half.life")
 PKNCA.options()
 ```
 
-> **Note:** `PKNCA.options.describe()` is exported but non-functional in PKNCA 0.12.1 (raises an error). Use `PKNCA.options()` to inspect current settings, and see the [Workflow Overview](workflow.qmd) page for the full option reference table.
+`PKNCA.options.describe()` returns the description of a single option; see the [Workflow Overview](workflow.qmd) page for the full option reference table, and the vignette [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
+
+```{r}
+PKNCA.options.describe("auc.method")
+```
 
 ---
 
@@ -241,5 +253,5 @@ PKNCA.choose.option("min.hl.points", options = list(min.hl.points = 5))
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [clean.conc.blq()](https://humanpred.github.io/pknca/reference/clean.conc.blq.html) · [clean.conc.na()](https://humanpred.github.io/pknca/reference/clean.conc.na.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [check.interval.specification()](https://humanpred.github.io/pknca/reference/check.interval.specification.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [setRoute()](https://humanpred.github.io/pknca/reference/setRoute.html) · [setDuration()](https://humanpred.github.io/pknca/reference/setDuration.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [PKNCA.choose.option()](https://humanpred.github.io/pknca/reference/PKNCA.choose.option.html)
+**pkgdown reference:** [clean.conc.blq()](https://humanpred.github.io/pknca/reference/clean.conc.blq.html) · [clean.conc.na()](https://humanpred.github.io/pknca/reference/clean.conc.na.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [pk.calc.auc.all()](https://humanpred.github.io/pknca/reference/pk.calc.auxc.html) · [check.interval.specification()](https://humanpred.github.io/pknca/reference/check.interval.specification.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [setRoute()](https://humanpred.github.io/pknca/reference/setRoute.html) · [setDuration()](https://humanpred.github.io/pknca/reference/setDuration.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [PKNCA.options.describe()](https://humanpred.github.io/pknca/reference/PKNCA.options.describe.html) · [PKNCA.choose.option()](https://humanpred.github.io/pknca/reference/PKNCA.choose.option.html)
 :::

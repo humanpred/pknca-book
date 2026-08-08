@@ -56,7 +56,7 @@ For each item, classify it:
 | New NCA parameter | new `add.interval.col()` entry |
 | New option | new key in `PKNCA.options()` |
 | New function | e.g. `normalize()` in 0.12.2 |
-| Changed behaviour | existing function works differently |
+| Changed behavior | existing function works differently |
 | Bug fix | may invalidate an existing example |
 
 Cross-check the parameter count and options list:
@@ -102,7 +102,7 @@ as.data.frame(o_nca) |>
 
 **Known gotchas:**
 
-- **Tobit half-life** — `pk.nca()` does not wire `lloq` through to `pk.calc.half.life()`. Use `pk.calc.half.life()` directly and add a note in the docs.
+- **Tobit half-life** — set `lloq` on `PKNCAconc()`; in PKNCA ≥ 0.12.2 it is passed through to `pk.calc.half.life()` automatically, so the full `pk.nca()` pipeline works with `options = list(hl_method = "tobit")`. (Older versions required calling `pk.calc.half.life()` directly.)
 - **Sparse AUMC** — only set `sparse_aumclast = TRUE`. Explicitly requesting `sparse_auc_se = TRUE` alongside it triggers an internal type error.
 - **`normalize()`** — replaces the original parameters (does not append). To keep both, `bind_rows()` before and after.
 - **New option defaults** — always verify with `PKNCA.options("option_name")` before documenting the default.
@@ -113,7 +113,7 @@ as.data.frame(o_nca) |>
 
 | Changed item | Page(s) to update |
 |---|---|
-| New NCA parameter | `user/intervals.qmd` (catalogue + count) + thematic page |
+| New NCA parameter | `user/intervals.qmd` (catalog + count) + thematic page |
 | New option | `user/workflow.qmd` (options table) |
 | New post-processing function | `user/postprocessing.qmd` |
 | New sparse parameter | `user/sparse.qmd` |
@@ -153,7 +153,7 @@ open _book/index.html
 Confirm:
 - Output matches expected values
 - No unexpected `NA` results
-- Warnings are expected (e.g., half-life not calculable for some subjects)
+- Warnings are expected (e.g. half-life not calculable for some subjects)
 
 ---
 
@@ -192,7 +192,7 @@ Template:
 [ ] Update index.qmd "What's new" section
 [ ] Update README.md version highlights
 [ ] Update user/workflow.qmd options table (if options changed)
-[ ] Update user/intervals.qmd parameter count and catalogue
+[ ] Update user/intervals.qmd parameter count and catalog
 [ ] Update thematic pages (auc-methods, halflife, sparse, urine, etc.)
 [ ] Verify all packages are listed in .github/workflows/book.yml — audit at once with:
     grep -rh "^library(" user/ dev/ index.qmd | sort -u
@@ -212,16 +212,16 @@ _quarto.yml          # book config (title, author, chapters)
 index.qmd            # introduction + What's new
 user/                # 19 User Guide chapters
   workflow.qmd       # PKNCAconc → PKNCAdose → PKNCAdata → pk.nca; all options
-  intervals.qmd      # interval data frame; full parameter catalogue
+  intervals.qmd      # interval data frame; full parameter catalog
   auc-methods.qmd    # AUC types; integration methods; AUMC; aucabove; time_above
   halflife.qmd       # λz regression; Tobit; quality filters; lambda.z.corrxy
   extravascular.qmd  # oral/SC; BLQ; tmin; lag time
   intravascular.qmd  # IV bolus; C0; IV infusion; ceoi; MRT
   multiple-dose.qmd  # steady-state parameters; tau detection
-  urine-excretion.qmd# ae; fe; clr; volpk; ermax; ertmax; ertlst; clr.*.dn
-  sparse.qmd         # sparse_auclast; sparse AUMC; derived sparse params
   superposition.qmd  # predicting multiple-dose from single-dose
   tss.qmd            # time to steady state
+  urine-excretion.qmd# ae; fe; clr; volpk; ermax; ertmax; ertlst; clr.*.dn
+  sparse.qmd         # sparse_auclast; sparse AUMC; derived sparse params
   postprocessing.qmd # exclude(); normalize(); .dn parameters; PKNCA.set.summary
   units.qmd          # pknca_units_table(); preferred units; conversions
   imputation.qmd     # built-in imputation methods; custom methods
@@ -231,6 +231,6 @@ user/                # 19 User Guide chapters
   regulatory.qmd     # PP domain; PPEXCLFL; summary() for CSR tables
   validation.qmd     # testthat suite; version pinning; spot-checks
 dev/                 # Developer Reference
-  function-deps.qmd  # parameter dependency graph
   architecture.qmd   # class hierarchy; interval column system; formalsmap
+  function-deps.qmd  # parameter dependency graph
 ```

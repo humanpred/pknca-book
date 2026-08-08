@@ -7,20 +7,13 @@ library(PKNCA)
 library(dplyr)
 library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
-
-d_conc <- as.data.frame(Theoph) |> rename(time = Time, subject = Subject)
-d_dose <- Theoph |> as.data.frame() |>
-  group_by(Subject) |>
-  summarise(dose = Dose[1] * Wt[1], .groups = "drop") |>
-  rename(subject = Subject) |>
-  mutate(time = 0)
 ```
 
 ## What superposition does
 
-**Superposition** predicts steady-state concentration-time profiles from a single-dose profile by linearly summing lagged copies of the single-dose curve. This is the NCA equivalent of multi-dose simulation, and it requires no compartmental model.
+**Superposition** predicts steady-state concentration-time profiles from a single-dose profile by linearly summing lagged copies of the single-dose curve. This is the NCA equivalent of multi-dose simulation, and it requires no compartmental model. Observed steady-state parameters (Cav, PTR, fluctuation) are covered in [Multiple-Dose and Steady-State](multiple-dose.qmd); estimating when steady state is reached is covered in [Time to Steady State](tss.qmd).
 
-The core assumption is **linear, time-invariant pharmacokinetics**: the drug does not accumulate non-linearly, and clearance and volume do not change over time.
+The core assumption is **linear, time-invariant pharmacokinetics**: the drug does not accumulate non-linearly, and clearance and volume do not change over time. See also the package vignette [Superposition of Pharmacokinetic Data](https://humanpred.github.io/pknca/articles/v20-superposition.html).
 
 ```{mermaid}
 flowchart LR
@@ -33,6 +26,19 @@ flowchart LR
 
 ## Basic superposition
 
+`Theoph` records dose in mg/kg; converting it to each subject's total dose in mg gives the value that `dose.input` expects:
+
+```{r}
+d_conc <- as.data.frame(Theoph) |> rename(time = Time, subject = Subject)
+
+# Theoph dose is mg/kg — multiply by body weight for the total mg dose
+d_dose <- Theoph |> as.data.frame() |>
+  group_by(Subject) |>
+  summarise(dose = Dose[1] * Wt[1], .groups = "drop") |>
+  rename(subject = Subject) |>
+  mutate(time = 0)
+```
+
 ```{r}
 # Use Theoph subject 1 as single-dose reference
 subj1 <- d_conc |> filter(subject == "1")
@@ -40,7 +46,7 @@ actual_dose <- d_dose |> filter(subject == "1") |> pull(dose)
 
 o_conc_1 <- PKNCAconc(subj1, conc ~ time | subject)
 
-# Predict steady-state profile with τ = 24 h, show 3 dosing intervals
+# Profile during the dosing interval after the 3rd dose (τ = 24 h)
 ss_profile <- superposition(
   o_conc_1,
   tau         = 24,           # dosing interval (h)
@@ -55,11 +61,17 @@ head(ss_profile, 12)
 
 ---
 
-## Visualising the approach to steady state
+## Visualizing the approach to steady state
 
-With `n.tau = Inf`, superposition runs until the profile converges to steady state (within `steady.state.tol`).
+With a finite `n.tau`, `superposition()` returns the concentration profile over the dosing interval after that many doses; with `n.tau = Inf` it accumulates doses until the profile converges to steady state (within `steady.state.tol`). Overlaying the profiles after 1, 2, and 3 doses on the converged profile makes the approach to steady state visible.
 
 ```{r}
+approach <- lapply(1:3, function(k) {
+  superposition(o_conc_1, tau = 24, dose.input = actual_dose,
+                dose.amount = actual_dose, n.tau = k, check.blq = FALSE) |>
+    mutate(profile = paste("After dose", k))
+}) |> bind_rows()
+
 ss_converged <- superposition(
   o_conc_1,
   tau         = 24,
@@ -69,11 +81,14 @@ ss_converged <- superposition(
   check.blq   = FALSE
 )
 
-ggplot(ss_converged, aes(x = time, y = conc)) +
-  geom_line(colour = "steelblue") +
-  geom_point(size = 2, colour = "steelblue") +
-  labs(title = "Superposition: predicted steady-state profile (τ = 24 h)",
-       x = "Time (h)", y = "Predicted SS concentration (mg/L)") +
+bind_rows(approach, ss_converged |> mutate(profile = "Steady state")) |>
+  mutate(profile = factor(profile, levels = c(paste("After dose", 1:3), "Steady state"))) |>
+  ggplot(aes(x = time, y = conc, colour = profile)) +
+  geom_line() +
+  geom_point(size = 1.5) +
+  labs(title = "Superposition: approach to steady state (τ = 24 h)",
+       x = "Time within interval (h)", y = "Predicted concentration (mg/L)",
+       colour = NULL) +
   theme_minimal()
 ```
 
@@ -109,6 +124,8 @@ bind_rows(
 
 ## Changing the dosing interval (τ)
 
+Shortening τ to 8 h raises troughs and reduces peak-to-trough fluctuation:
+
 ```{r}
 ss_8h <- superposition(
   o_conc_1,
@@ -129,9 +146,47 @@ ggplot(ss_8h, aes(x = time, y = conc)) +
 
 ---
 
+## Multiple doses within an interval
+
+`dose.times` (default `0`) sets the dose time(s) within each interval, and a
+vector places several doses inside one τ: `tau = 24` with
+`dose.times = c(0, 12)` is twice-daily dosing described as a single 24 h
+interval. `dose.amount` applies to **each** administration, so halving it here
+keeps the total daily dose equal to the once-daily regimen above:
+
+```{r}
+ss_bid <- superposition(
+  o_conc_1,
+  tau         = 24,
+  dose.input  = actual_dose,
+  dose.amount = actual_dose / 2,  # half dose per administration
+  dose.times  = c(0, 12),         # doses at 0 h and 12 h in each interval
+  n.tau       = Inf,
+  check.blq   = FALSE
+)
+
+bind_rows(
+  ss_converged |> mutate(regimen = "Once daily, full dose"),
+  ss_bid       |> mutate(regimen = "Twice daily, half dose")
+) |>
+  ggplot(aes(x = time, y = conc, colour = regimen)) +
+  geom_line() + geom_point(size = 2) +
+  labs(title = "Two doses per interval: dose.times = c(0, 12), τ = 24 h",
+       x = "Time within interval (h)", y = "Predicted SS concentration (mg/L)",
+       colour = NULL) +
+  theme_minimal()
+```
+
+At the same total daily dose, splitting the dose lowers Cmax and raises the
+trough. The dose times need not be evenly spaced: `dose.times = c(0, 8)` with
+`tau = 24` describes a staggered morning/evening regimen (doses 8 h apart,
+then a 16 h overnight gap).
+
+---
+
 ## Extracting accumulation ratio
 
-The **accumulation ratio (Rac)** is Cmax at steady state divided by Cmax after the first dose:
+One common definition of the **accumulation ratio (Rac)** is Cmax at steady state divided by Cmax after the first dose (an AUC-based Rac, AUCτ,ss / AUCτ,first, is equally common):
 
 ```{r}
 cmax_sd <- max(subj1$conc, na.rm = TRUE)
@@ -149,15 +204,18 @@ cat("Steady-state Cmax:", round(cmax_ss, 2), "mg/L\n")
 | Argument | Required | Meaning |
 |---|---|---|
 | `tau` | Yes | Dosing interval (same time units as data) |
-| `dose.input` | When `dose.amount` ≠ NULL | Dose used to generate the observed profile |
-| `dose.amount` | When `dose.input` ≠ NULL | Dose to simulate (for dose scaling) |
+| `dose.input` | No | Dose that generated the observed profile; supply together with `dose.amount` to dose-scale |
+| `dose.amount` | No | Dose to simulate; if omitted, the output dose equals the input dose |
+| `dose.times` | No (default `0`) | Dose time(s) within the interval; a vector gives multiple/staggered doses per τ |
 | `n.tau` | No (default `Inf`) | Number of intervals to simulate before stopping |
 | `steady.state.tol` | No (default 0.001) | Convergence tolerance for `n.tau = Inf` |
 | `check.blq` | No (default `TRUE`) | Require first concentration = 0; set `FALSE` if first sample is non-zero |
-| `auc.type` | No (default `"AUCinf"`) | How to extrapolate the single-dose tail: `"AUCinf"` or `"AUClast"` |
+| `auc.type` | No (default `"AUCinf"`) | How to extrapolate the single-dose tail: `"AUCinf"`, `"AUClast"`, or `"AUCall"` |
 | `additional.times` | No | Extra timepoints to include in the output |
 
-> **Limitation:** Superposition assumes linear PK. It should not be used for drugs with non-linear kinetics (e.g., Michaelis-Menten elimination, time-varying clearance, or saturable protein binding).
+Interpolation and tail extrapolation follow [the dose-aware interpolation methods](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
+
+> **Limitation:** Superposition assumes linear PK. It should not be used for drugs with non-linear kinetics (e.g. Michaelis-Menten elimination, time-varying clearance, or saturable protein binding).
 
 
 ---
