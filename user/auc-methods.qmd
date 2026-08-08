@@ -25,11 +25,11 @@ PKNCA offers four families of AUC, each answering a different question:
 
 ```{mermaid}
 flowchart LR
-    A["AUClast\n0 → last measurable"]
-    B["AUCall\n0 → last, zeros for BLQ"]
-    C["AUCinf.obs\n0 → ∞ (observed Clast)"]
-    D["AUCinf.pred\n0 → ∞ (predicted Clast)"]
-    E["AUCint / partial\n0 → t (any t)"]
+    A["AUClast<br/>0 → last measurable"]
+    B["AUCall<br/>0 → last, zeros for BLQ"]
+    C["AUCinf.obs<br/>0 → ∞ (observed Clast)"]
+    D["AUCinf.pred<br/>0 → ∞ (predicted Clast)"]
+    E["AUCint / partial<br/>0 → t (any t)"]
 ```
 
 | Parameter | End point | BLQ treatment | When to use |
