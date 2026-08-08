@@ -3,10 +3,8 @@
 This guide explains how to update the book when a new version of PKNCA is released.
 Anyone — maintainers, users, or contributors — can follow this workflow.
 
-**Book repo (current):** https://github.com/TeunP/PKNCA.doc  
-**Rendered book (current):** https://teunp.github.io/PKNCA.doc/  
-**Book repo (intended):** https://github.com/humanpred/pknca-book  
-**Rendered book (intended):** https://humanpred.github.io/pknca-book/  
+**Book repo:** https://github.com/humanpred/pknca-book  
+**Rendered book:** https://humanpred.github.io/pknca-book/  
 **Package repo:** https://github.com/humanpred/pknca  
 **pkgdown reference:** https://humanpred.github.io/pknca/reference/index.html  
 **Upstream issue:** https://github.com/humanpred/pknca/issues/541
@@ -33,8 +31,8 @@ packageVersion("PKNCA")
 - Clone the book:
 
 ```bash
-git clone https://github.com/TeunP/PKNCA.doc
-cd PKNCA.doc
+git clone https://github.com/humanpred/pknca-book
+cd pknca-book
 ```
 
 ---
@@ -167,15 +165,7 @@ git commit -m "update docs for PKNCA vX.Y.Z"
 git push
 ```
 
-The `_book/` directory is in `.gitignore` — only source `.qmd` files are committed. Pushing to `main` triggers the GitHub Actions workflow (`.github/workflows/book.yml`), which renders the book and deploys it automatically. The live URL depends on where the repo is hosted:
-
-| Repo | Rendered URL |
-|---|---|
-| `TeunP/PKNCA.doc` (current) | https://teunp.github.io/PKNCA.doc/ |
-| `humanpred/pknca-book` (intended) | https://humanpred.github.io/pknca-book/ |
-| Custom domain (optional) | e.g. `pknca.humanpred.com/user-guide/` |
-
-If the URL changes, update `site-url` in `_quarto.yml` accordingly.
+The `_book/` directory is in `.gitignore` — only source `.qmd` files are committed. Pushing to `main` triggers the GitHub Actions workflow (`.github/workflows/book.yml`), which renders the book and deploys it to https://humanpred.github.io/pknca-book/. If the site ever moves (e.g. to a custom domain), update `site-url` in `_quarto.yml` accordingly.
 
 ---
 
@@ -187,7 +177,7 @@ Post a comment on the upstream issue or open a new one:
 
 Template:
 > Updated the documentation book for PKNCA vX.Y.Z — covers [list new features].
-> Book: [insert live URL — see step 6 for the URL that applies to your repo]
+> Book: https://humanpred.github.io/pknca-book/
 
 ---
 
