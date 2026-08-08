@@ -146,6 +146,14 @@ quarto render
 - Watch for **red error output** in the console — chunks that error are flagged even though `execute: error: false` suppresses them in the HTML output.
 - Fix the code, not the error suppression.
 
+Before pushing, run the numeric self-check, which verifies that key documented examples still produce correct values:
+
+```bash
+Rscript validate.R
+```
+
+It prints PASS/FAIL per check and exits non-zero on any failure. CI runs it too (`.github/workflows/book.yml`), so a failing check will fail the build.
+
 Then open the book and spot-check every updated page:
 
 ```bash
@@ -207,6 +215,7 @@ Template:
 [ ] Verify all packages are listed in .github/workflows/book.yml — audit at once with:
     grep -rh "^library(" user/ dev/ index.qmd | sort -u
 [ ] quarto render — zero errors in console
+[ ] Rscript validate.R — all checks PASS (CI runs this too and fails otherwise)
 [ ] Spot-check _book/ in browser
 [ ] Add new functions to chapter pkgdown reference footers if needed
 [ ] git commit and push (CI auto-deploys to humanpred.github.io/pknca-book/)

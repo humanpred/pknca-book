@@ -42,6 +42,10 @@ jobs:
             any::visNetwork
             github::humanpred/pknca
 
+      # Fails the job (non-zero exit) if any documented example check fails
+      - name: Validate documented examples
+        run: Rscript validate.R
+
       - name: Set up Quarto
         uses: quarto-dev/quarto-actions/setup@v2
 
