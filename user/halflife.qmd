@@ -245,7 +245,7 @@ Tobit regression is most beneficial when:
 
 ### Using Tobit (PKNCA ≥ 0.12.2)
 
-Tobit is available by calling `pk.calc.half.life()` directly. Supply the full concentration-time vector and the LLOQ for each timepoint:
+The mechanics are easiest to see with a direct `pk.calc.half.life()` call. Supply the full concentration-time vector and the LLOQ for each timepoint:
 
 ```{r}
 # Simulated profile — concentrations at 16h and 24h are below the LLOQ of 0.1 mg/L
@@ -270,7 +270,33 @@ data.frame(
 )
 ```
 
-> **Note:** Passing `hl_method = "tobit"` through the `pk.nca()` pipeline (via `PKNCAdata(options=...)`) also requires the LLOQ to be wired through from the concentration data, which is tracked for a future PKNCA update. For full pipeline support, use `hl_method = "log-linear"` (default) and call `pk.calc.half.life()` with `hl_method = "tobit"` directly for targeted analyses.
+### Tobit through the `pk.nca()` pipeline (≥ 0.12.2)
+
+The full pipeline supports Tobit end-to-end. Supply the LLOQ with the `lloq` argument of `PKNCAconc()` — either a numeric scalar or the name of a column in the concentration data — and select the method with `PKNCAdata(options = list(hl_method = "tobit"))`:
+
+```{r}
+d_conc_tobit <- data.frame(subject = 1, conc = conc_tobit, time = time_tobit)
+d_dose_tobit <- data.frame(subject = 1, dose = 100, time = 0)
+
+o_conc_tobit <- PKNCAconc(d_conc_tobit, conc ~ time | subject, lloq = 0.1)
+o_dose_tobit <- PKNCAdose(d_dose_tobit, dose ~ time | subject)
+
+tobit_interval <- data.frame(start = 0, end = Inf,
+                             half.life = TRUE, lambda.z = TRUE,
+                             lambda.z.n.points = TRUE)
+
+o_nca_tobit <- pk.nca(PKNCAdata(o_conc_tobit, o_dose_tobit,
+                                intervals = tobit_interval,
+                                options = list(hl_method = "tobit")))
+
+as.data.frame(o_nca_tobit) |>
+  filter(PPTESTCD %in% c("half.life", "lambda.z", "lambda.z.n.points",
+                         "lambda.z.n.points_blq", "tobit_residual",
+                         "adj_tobit_residual")) |>
+  select(PPTESTCD, PPORRES)
+```
+
+The λz and half-life match the direct `pk.calc.half.life()` call above, and `lambda.z.n.points_blq` confirms that the two BLQ observations entered the regression as censored points. The LLOQ must be set on `PKNCAconc()` — with `hl_method = "tobit"` and no `lloq`, `pk.nca()` stops with an error.
 
 Tobit adds new output columns to the result:
 
