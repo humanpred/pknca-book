@@ -70,4 +70,3 @@ open _book/index.html
 - pkgdown reference: https://humanpred.github.io/pknca/reference/index.html
 - CRAN: https://cran.r-project.org/package=PKNCA
 - Discussion: [humanpred/pknca#541](https://github.com/humanpred/pknca/issues/541)
-- Setup guide for org repo + hub site: [BUILDING_SETUP.md](BUILDING_SETUP.md)
