@@ -73,8 +73,8 @@ args(PKNCA_impute_method_start_cmin)
 
 ### `start_conc0` — zero concentration at interval start
 
-Appropriate after a single-dose study when no pre-dose drug was present. The
-drug concentration at time 0 is assumed to be 0.
+Appropriate in a single-dose setting when no drug is expected before dosing.
+The drug concentration at time 0 is assumed to be 0.
 
 ```{r}
 o_data_c0 <- PKNCAdata(o_conc, o_dose, impute = "start_conc0")
@@ -94,7 +94,11 @@ as.data.frame(res_c0) |>
 
 Appropriate in multiple-dose or steady-state settings where a true pre-dose
 (trough) sample was collected just before administration. The method looks
-outside the current interval for the most recent observed concentration.
+outside the current interval for the most recent observed concentration. The
+`max_shift` argument caps how far forward that pre-dose sample may be shifted
+to the interval start: it defaults to 5% of the interval duration
+(`0.05 * (end - start)`), or, when `end` is infinite, 5% of the time from
+`start` to the last sample.
 
 ```{r}
 o_data_pd <- PKNCAdata(o_conc, o_dose, impute = "start_predose")
@@ -111,6 +115,36 @@ minimum observed concentration in the interval as a lower-bound estimate.
 o_data_cmin <- PKNCAdata(o_conc, o_dose, impute = "start_cmin")
 o_data_cmin$impute
 ```
+
+### The three strategies side by side
+
+Running all three on subject 1 (whose first sample is at t = 0.25) makes the
+differences concrete:
+
+```{r}
+d1_conc <- d_conc_no0 |> dplyr::filter(Subject == "1")
+d1_dose <- d_dose |> dplyr::filter(Subject == "1")
+o_conc1 <- PKNCAconc(d1_conc, conc ~ Time | Subject)
+o_dose1 <- PKNCAdose(d1_dose, amt ~ Time | Subject)
+ivl1    <- data.frame(start = 0, end = Inf, auclast = TRUE)
+
+auclast_with <- function(method) {
+  res <- as.data.frame(pk.nca(PKNCAdata(o_conc1, o_dose1, intervals = ivl1,
+                                        impute = method)))
+  data.frame(impute = method, auclast = res$PPORRES[res$PPTESTCD == "auclast"])
+}
+
+dplyr::bind_rows(auclast_with("start_conc0"),
+                 auclast_with("start_predose"),
+                 auclast_with("start_cmin"))
+```
+
+`start_conc0` adds conc = 0 at t = 0, while `start_cmin` adds the minimum
+concentration observed in the interval (here 2.84 mg/L, the first sample) —
+so `start_cmin` gives the slightly larger AUC. `start_predose` looks for a
+sample at or before the interval start, and this dataset has none: it imputes
+nothing, the interval still has no concentration at its start time, and
+`auclast` is `NA` (the warning printed by the chunk explains why).
 
 ---
 
@@ -136,9 +170,9 @@ df_global |>
 
 ## Chaining methods
 
-Provide a comma-separated string to apply methods in sequence. Each method
-in the chain is tried in order; the first one that successfully adds a point
-at the interval start wins.
+Provide a comma-separated string to apply methods in sequence. Methods are
+applied in order; a later method has no effect if an earlier one already
+added a point at the interval start.
 
 ```{r}
 # Try start_predose first; if it cannot find a pre-dose observation,
@@ -200,8 +234,8 @@ as.data.frame(res_per) |>
 ### Naming convention
 
 The function name **must** follow the pattern `PKNCA_impute_method_<name>`.
-PKNCA discovers imputation methods by scanning the search path for functions
-whose names match this prefix, so the convention is mandatory.
+PKNCA prepends `PKNCA_impute_method_` to the string you supply and looks up
+that single function on the search path, so the convention is mandatory.
 
 ### Required signature
 

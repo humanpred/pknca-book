@@ -4,7 +4,7 @@ title: "Intravascular (IV) Examples"
 
 ```{r setup, include=FALSE}
 library(PKNCA)
-library(dplyr)    # load after PKNCA so dplyr::filter wins
+library(dplyr)
 library(ggplot2)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
@@ -28,8 +28,7 @@ d_conc <- as.data.frame(Indometh)
 d_dose <- data.frame(
   Subject = unique(d_conc$Subject),
   dose    = 25,   # mg
-  time    = 0,
-  route   = "intravascular"
+  time    = 0
 )
 
 # Quick look at concentration profiles
@@ -41,7 +40,7 @@ ggplot(d_conc, aes(x = time, y = conc, group = Subject, colour = Subject)) +
   theme_minimal()
 ```
 
-The log-linear profiles confirm monoexponential decline — well suited for IV NCA.
+The log-scale profiles show a biexponential decline — a rapid distribution phase followed by a log-linear terminal phase — typical of IV bolus data; NCA's λz applies to the terminal portion.
 
 ---
 
@@ -128,13 +127,14 @@ as.data.frame(o_nca_lm) |>
 
 ### C0 — extrapolated initial concentration
 
-For IV bolus, the true concentration at time 0 is not directly measured (the first sample is taken minutes later). PKNCA extrapolates C0 by back-extrapolating the log-linear terminal phase.
+For IV bolus, the true concentration at time 0 is not directly measured (the first sample is taken minutes later). When `c0` is requested, PKNCA tries a chain of methods and uses the first that succeeds: a measured, nonzero concentration at the dose time (`c0`); otherwise back-extrapolation of the semilog line through the first two measured post-dose concentrations (`logslope`); otherwise the first post-dose concentration (`c1`), then the minimum concentration (`cmin`), then zero (`set0`). Here the value at t = 0 is an imputed 0 rather than a measured concentration, so `logslope` supplies C0.
 
 ```{r}
 iv_with_c0 <- data.frame(
   start    = first_t,
   end      = Inf,
   c0       = TRUE,
+  cmax     = TRUE,
   auclast  = TRUE,
   aucinf.obs = TRUE
 )
@@ -226,22 +226,33 @@ as.data.frame(o_nca_strict) |>
 
 **Excluding specific points from λz:**
 
-Use `exclude_half.life` column in your concentration data to mark points that should not be included in the terminal regression:
+Use the `exclude_half.life` argument of `PKNCAconc()` to name a logical column (here `excl_hl`) marking points that should not be included in the terminal regression. Below, subject 1's 8 h sample is dropped from the λz fit, and the regression is re-selected without it:
 
 ```{r}
 d_conc_excl <- d_conc |>
-  mutate(excl_hl = ifelse(Subject == "1" & time < 0.5, TRUE, NA))
+  mutate(excl_hl = ifelse(Subject == "1" & time == 8, TRUE, NA))
 
 o_conc_excl <- PKNCAconc(
   d_conc_excl,
   conc ~ time | Subject,
   exclude_half.life = "excl_hl"
 )
+
+o_nca_excl_hl <- pk.nca(PKNCAdata(o_conc_excl, o_dose, intervals = hl_params,
+                                  impute = "start_conc0"))
+
+# Subject 1's terminal fit changes when the 8 h point is excluded
+bind_rows(
+  as.data.frame(o_nca_hl) |> mutate(version = "all points"),
+  as.data.frame(o_nca_excl_hl) |> mutate(version = "8 h point excluded")
+) |>
+  filter(Subject == "1", PPTESTCD %in% c("lambda.z.n.points", "half.life")) |>
+  select(version, PPTESTCD, PPORRES)
 ```
 
 ### Clearance and Volume
 
-For IV, apparent clearance and volume can be calculated directly (no bioavailability factor needed).
+For IV dosing, clearance and volume are obtained directly (no bioavailability factor involved), unlike the apparent CL/F and Vz/F of extravascular routes.
 
 | Parameter | Formula | Meaning |
 |---|---|---|
@@ -281,7 +292,7 @@ as.data.frame(o_nca_cl) |>
 
 MRT quantifies the average time a drug molecule spends in the body.
 
-For IV, the AUMC (area under the first moment curve) method gives:
+For IV, the AUMC (area under the first moment curve) method gives MRT = AUMC / AUC.
 
 All MRT variants for IV:
 
@@ -378,12 +389,12 @@ Complete `auciv*` family:
 | `aucivinf.pred` | AUC(0–∞) IV method, predicted Clast |
 | `aucivint.last` | AUC over interval [start,end], IV method, AUClast extrapolation |
 | `aucivint.all` | AUC over interval [start,end], IV method, AUCall extrapolation |
-| `aucivpbextlast` | % of `aucivinf.obs` beyond last sample (IV, last type) |
-| `aucivpbextall` | % of `aucivinf.obs` beyond last sample (IV, all type) |
-| `aucivpbextinf.obs` | % of `aucivinf.obs` that is extrapolated beyond the last sample |
-| `aucivpbextinf.pred` | Same using predicted Clast |
-| `aucivpbextint.last` | % extrapolated for interval-based auciv (last type) |
-| `aucivpbextint.all` | % extrapolated for interval-based auciv (all type) |
+| `aucivpbextlast` | % of `aucivlast` contributed by back-extrapolation — the C0 segment before the first measured sample |
+| `aucivpbextall` | % of `aucivall` contributed by the back-extrapolated C0 segment |
+| `aucivpbextinf.obs` | % of `aucivinf.obs` contributed by the back-extrapolated C0 segment |
+| `aucivpbextinf.pred` | % of `aucivinf.pred` contributed by the back-extrapolated C0 segment |
+| `aucivpbextint.last` | % of `aucivint.last` contributed by the back-extrapolated C0 segment |
+| `aucivpbextint.all` | % of `aucivint.all` contributed by the back-extrapolated C0 segment |
 
 ```{r}
 auciv_params <- data.frame(
@@ -478,7 +489,7 @@ Use `mrt.iv.obs` (extrapolated to ∞) when the terminal phase is well character
 For steady-state or partial AUC windows:
 
 ```{r}
-# AUC from first sample to 4 hours
+# AUC from 0 to 4 hours
 partial_auc <- data.frame(
   start   = first_t,
   end     = 4,
@@ -532,9 +543,12 @@ d_conc_with_excl <- d_conc |>
   mutate(excl = ifelse(Subject == "2" & time == 2, "suspected contamination", NA_character_))
 
 o_conc_excl <- PKNCAconc(d_conc_with_excl, conc ~ time | Subject, exclude = "excl")
+
+# The flagged row stays in the data with its exclusion reason
+as.data.frame(o_conc_excl) |> filter(!is.na(excl))
 ```
 
-Excluded points are tracked in the results and appear in `as.data.frame()` output.
+The exclusion reason travels with the data (shown above), and the excluded point is dropped from every parameter calculation — the λz exclusion example above shows the resulting change in `lambda.z.n.points`.
 
 ---
 
@@ -545,14 +559,14 @@ Excluded points are tracked in the results and appear in `as.data.frame()` outpu
 summary(o_nca)
 ```
 
-Customize the summary function (e.g., arithmetic mean ± SD for Tmax):
+Customize the summary function — for example, report arithmetic mean (SD) for Tmax instead of its default median [range]:
 
 ```{r}
 PKNCA.set.summary(
   "tmax",
-  description = "median [min, max]",
-  point  = median,
-  spread = function(x) c(min(x), max(x))  # must return numeric; PKNCA formats the string
+  description = "arithmetic mean (SD)",
+  point  = business.mean,
+  spread = business.sd
 )
 
 summary(o_nca)

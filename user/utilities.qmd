@@ -17,7 +17,7 @@ PKNCA exports several lower-level utility functions useful for data preparation,
 
 ## BLQ concentration handling: `clean.conc.blq()`
 
-Applies the BLQ-handling rule to a concentration vector **before** fitting. The full analysis pipeline applies this automatically, but `clean.conc.blq()` is useful for pre-processing or testing your own rule.
+Applies the BLQ-handling rule to a concentration vector **before** calculation. The full analysis pipeline applies this automatically, but `clean.conc.blq()` is useful for pre-processing or testing your own rule.
 
 ```{r}
 conc <- c(0.5, 0.3, 0,    0.1, 0,    0.0, 0.02)
@@ -71,11 +71,16 @@ interp.extrap.conc(conc = conc_ex, time = time_ex, time.out = 3)
 ```
 
 ```{r}
-# Extrapolate beyond the last sample (t = 12)
-interp.extrap.conc(conc = conc_ex, time = time_ex, time.out = 12)
+# Extrapolate beyond the last sample (t = 12):
+# estimate lambda.z first, then pass it to interp.extrap.conc()
+hl_ex <- pk.calc.half.life(conc = conc_ex, time = time_ex)
+hl_ex$lambda.z
+
+interp.extrap.conc(conc = conc_ex, time = time_ex, time.out = 12,
+                   lambda.z = hl_ex$lambda.z)
 ```
 
-The method (linear vs log-linear) follows the `auc.method` setting. Extrapolation uses the terminal log-linear slope (requires at least 3 points for λz estimation).
+The method (linear vs log-linear) follows the `auc.method` setting. Extrapolation beyond Tlast requires supplying `lambda.z` (the terminal slope) — the function never estimates λz itself, and without `lambda.z` the result is `NA`.
 
 ---
 
@@ -117,7 +122,7 @@ Other direct AUC functions:
 | Function | AUC type |
 |---|---|
 | `pk.calc.auc.last()` | AUC to last measurable concentration |
-| `pk.calc.auc.all()` | AUC to last, treating BLQ as 0 |
+| `pk.calc.auc.all()` | AUC to the last observation including post-Tlast BLQ values (as 0) |
 | `pk.calc.auc.inf.obs()` | AUC extrapolated to ∞ (observed Clast) |
 | `pk.calc.auc.inf.pred()` | AUC extrapolated to ∞ (predicted Clast) |
 
@@ -140,8 +145,9 @@ my_intervals <- data.frame(
 # Returns the full expanded interval spec
 expanded <- check.interval.specification(my_intervals)
 
-# Which parameters are requested?
-names(expanded)[as.logical(expanded[1, ])]
+# Which parameters are requested? (drop the start/end bounds columns first)
+param_cols <- setdiff(names(expanded), c("start", "end"))
+param_cols[sapply(expanded[1, param_cols], isTRUE)]
 ```
 
 ```{r}
@@ -219,7 +225,11 @@ get.parameter.deps("half.life")
 PKNCA.options()
 ```
 
-> **Note:** `PKNCA.options.describe()` is exported but non-functional in PKNCA 0.12.1 (raises an error). Use `PKNCA.options()` to inspect current settings, and see the [Workflow Overview](workflow.qmd) page for the full option reference table.
+`PKNCA.options.describe()` returns the description of a single option; see the [Workflow Overview](workflow.qmd) page for the full option reference table.
+
+```{r}
+PKNCA.options.describe("auc.method")
+```
 
 ---
 

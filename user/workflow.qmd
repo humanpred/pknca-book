@@ -32,7 +32,7 @@ Below is the complete workflow with the built-in `Theoph` dataset (oral theophyl
 
 ### Step 1 — Prepare your data
 
-PKNCA expects two separate data frames: one for concentrations and one for doses. Both must be in **long format** (one row per observation).
+PKNCA typically takes two separate data frames: one for concentrations and one for doses (dose data are optional, but required for dose-dependent parameters such as CL and Vz). Both must be in **long format** (one row per observation).
 
 ```{r}
 # Built-in oral theophylline dataset
@@ -76,7 +76,7 @@ print(o_dose)
 
 ### Step 4 — PKNCAdata
 
-`PKNCAdata` combines concentration and dose objects. If you don't specify `intervals`, PKNCA automatically determines them from the dosing times.
+`PKNCAdata` combines concentration and dose objects. If you don't specify `intervals`, PKNCA builds default intervals from the built-in `single.dose.aucs` specification, anchored at the dosing times.
 
 ```{r}
 o_data <- PKNCAdata(o_conc, o_dose)
@@ -104,7 +104,7 @@ as.data.frame(o_nca) |> head(20)
 ```
 
 ```{r}
-# Summary table (geometric mean ± CV% by default for most parameters)
+# Summary table (geometric mean and geometric CV% by default for most parameters)
 summary(o_nca)
 ```
 
@@ -115,6 +115,7 @@ summary(o_nca)
 Auto-interval detection works for simple designs. For complex studies (multiple doses, custom windows), define intervals yourself.
 
 An **interval** is a row in a data frame with:
+
 - `start`, `end`: time boundaries
 - One column per parameter set to `TRUE` to request that parameter
 

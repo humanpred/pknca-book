@@ -76,7 +76,7 @@ d_dose <- data.frame(
 
 ## Setting up urine PKNCAconc
 
-Use `concu` for concentration units and `volumeu` for the urine volume column name. The formula uses the same `conc ~ time | Subject` structure.
+Pass the urine volume column name via the `volume` argument; the unit arguments (`concu`, `amountu`, `timeu`, …) are optional and set units. The formula uses the same `conc ~ time | Subject` structure.
 
 ```{r}
 o_conc_plasma <- PKNCAconc(d_plasma, conc ~ time | Subject)
@@ -93,40 +93,13 @@ o_dose <- PKNCAdose(d_dose, dose ~ time | Subject, route = "intravascular")
 
 ## Computing ae, fe, and renal clearance
 
-Request urine parameters in the intervals data frame. The interval `end` should match the last urine collection time.
-
-```{r}
-urine_intervals <- data.frame(
-  start     = 0,
-  end       = 24,
-  ae        = TRUE,
-  fe        = TRUE,
-  clr.obs   = TRUE,
-  clr.last  = TRUE,
-  # Also request plasma AUC for the combined object
-  auclast   = TRUE,
-  aucinf.obs = TRUE
-)
-
-# PKNCAdata accepts a list of conc objects when plasma and urine are separate
-o_data_ur <- PKNCAdata(
-  o_conc_plasma,
-  o_dose,
-  intervals = urine_intervals,
-  impute = "start_conc0"
-)
-
-# Add urine data
-o_data_ur$conc <- list(plasma = o_conc_plasma, urine = o_conc_urine)
-```
-
-> **Note:** PKNCA 0.12.1 support for combined plasma+urine in a single `PKNCAdata` is limited. The most reliable workflow is to run plasma NCA and urine NCA separately and join the results.
+Renal clearance combines the urine amount excreted (Ae) with the plasma AUC. Combined plasma+urine analysis in a single `PKNCAdata` object is limited; the recommended workflow is to run plasma NCA and urine NCA separately and join the results.
 
 ---
 
 ## Separate plasma + urine workflow
 
-This approach works reliably in PKNCA 0.12.1:
+This separate-workflow approach works reliably:
 
 ```{r}
 # --- Plasma NCA ---
@@ -164,6 +137,8 @@ results <- plasma_auc |>
 results
 ```
 
+For a real IV analysis, back-extrapolate C0 instead — see the [Intravascular](intravascular.qmd) chapter; `conc = 0` at `t = 0` is used here only to keep the simulation short.
+
 ---
 
 ## Interpreting results
@@ -182,7 +157,7 @@ results |>
 
 - `fe` near 0.30 means ~30% of dose is renally excreted unchanged. The remainder is metabolized or excreted by other routes.
 - `clr.obs` ≈ GFR (120 mL/min = 7.2 L/h) suggests renal filtration; higher values indicate active secretion.
-- `clr.last` < `clr.obs` is expected when the sampling window misses late excretion.
+- `clr.last` > `clr.obs` because the same Ae is divided by the smaller AUClast; the gap grows when sampling misses late elimination.
 
 ---
 
@@ -221,7 +196,7 @@ as.data.frame(o_nca_ae) |>
 
 `volpk` is the sum of urine volumes across all collection periods within the analysis interval. When you pass `volume = "volume"` to `PKNCAconc()`, PKNCA can compute this automatically:
 
-```{r eval=FALSE}
+```{r}
 vol_interval <- data.frame(
   start  = 0,
   end    = 24,
@@ -245,17 +220,29 @@ as.data.frame(o_nca_vol) |>
 
 These mirror the plasma-side `cmax` / `tmax` / `tlast` but apply to the excretion rate (amount excreted per collection period divided by collection duration).
 
-```{r eval=FALSE}
+```{r}
+# Excretion rate needs each collection's duration, and PKNCA takes urine `time` as
+# the collection START with `duration` extending forward — rebuild the object that way
+urine_er <- urine_collections |>
+  mutate(
+    start_t  = c(0, 2, 6, 12)[match(time, c(2, 6, 12, 24))],
+    duration = time - start_t
+  ) |>
+  transmute(Subject, time = start_t, conc, volume, duration)
+
+o_conc_er <- PKNCAconc(urine_er, conc ~ time | Subject,
+                       volume = "volume", duration = "duration")
+
 er_interval <- data.frame(
   start  = 0,
   end    = 24,
   ae     = TRUE,
   ermax  = TRUE,    # maximum excretion rate
-  ertmax = TRUE,    # time of maximum excretion rate
-  ertlst = TRUE     # time of last measurable excretion rate
+  ertmax = TRUE,    # midpoint time of the maximum-rate collection
+  ertlst = TRUE     # midpoint time of the last measurable-rate collection
 )
 
-o_nca_er <- pk.nca(PKNCAdata(o_conc_ur2, o_dose, intervals = er_interval))
+o_nca_er <- pk.nca(PKNCAdata(o_conc_er, o_dose, intervals = er_interval))
 as.data.frame(o_nca_er) |>
   filter(PPTESTCD %in% c("ae", "ermax", "ertmax", "ertlst")) |>
   select(Subject, PPTESTCD, PPORRES)
@@ -271,19 +258,28 @@ Dose-normalized renal clearance variants are now available in the parameter regi
 | `clr.obs.dn` | `clr.obs / dose` |
 | `clr.pred.dn` | `clr.pred / dose` |
 
-Request them in the interval data frame alongside their un-normalized counterparts:
+Renal clearance divides the urine Ae by the plasma AUC — two different concentration objects — so a single `pk.nca()` call cannot compute `clr.*` directly. Compute each piece with `pk.nca()` and combine them, with `pk.calc.dn()` applying the dose normalization:
 
-```{r eval=FALSE}
-dn_interval <- data.frame(
-  start        = 0,
-  end          = Inf,
-  ae           = TRUE,
-  fe           = TRUE,
-  clr.last     = TRUE,
-  clr.last.dn  = TRUE,
-  clr.obs      = TRUE,
-  clr.obs.dn   = TRUE
-)
+```{r}
+o_nca_ae_dn <- pk.nca(PKNCAdata(o_conc_ur2, o_dose,
+                                intervals = data.frame(start = 0, end = 24, ae = TRUE)))
+
+clr_dn <- plasma_auc |>   # plasma pk.nca() results from the separate workflow above
+  left_join(
+    as.data.frame(o_nca_ae_dn) |>
+      filter(PPTESTCD == "ae") |>
+      select(Subject, ae = PPORRES),
+    by = "Subject"
+  ) |>
+  mutate(
+    ae          = ae / 1000,                  # native ae is in mcg (mcg/mL * mL); convert to mg to match the plasma AUC
+    clr.last    = ae / auclast,
+    clr.obs     = ae / aucinf.obs,
+    clr.last.dn = pk.calc.dn(clr.last, 100),  # dose = 100 mg
+    clr.obs.dn  = pk.calc.dn(clr.obs, 100)
+  )
+
+clr_dn
 ```
 
 

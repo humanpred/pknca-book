@@ -61,12 +61,17 @@ Each entry contains:
 
 | Field | Purpose |
 |---|---|
-| `FUN` | The R function that computes this parameter |
+| `FUN` | Name of the function that computes this parameter (character string, or `NA` for parameters populated by another function's multi-column result) |
+| `values` | Allowed values in the interval column (typically `c(FALSE, TRUE)`) |
+| `unit_type` | Unit category used for unit assignment and conversion |
+| `pretty_name` | Human-readable name used in summary tables |
 | `depends` | Character vector of parameters that must be computed first |
 | `desc` | Human-readable description |
-| `formalsmap` | Maps function arguments to interval/group/options data |
-| `value.ok` | Validation function for the computed result |
 | `sparse` | Whether this parameter works for sparse PK |
+| `formalsmap` | Maps function arguments to interval/group/options data |
+| `datatype` | Calculation type; only `"interval"` is currently supported |
+| `pptestcd_cdisc` | CDISC PPTESTCD code (≥ 0.12.2) |
+| `pptest_cdisc` | CDISC PPTEST label (≥ 0.12.2) |
 
 ## formalsmap
 
@@ -77,7 +82,9 @@ Each entry contains:
 | Interval column | `conc`, `time` | Concentrations/times for the current interval |
 | Other parameters | `auclast = "auclast"` | A previously computed NCA result |
 | Interval bounds | `start`, `end` | The interval start/end times |
-| Options | `auc.method` | Value from `PKNCA.options()` |
+| Options | `options` | The full analysis options list |
+
+Individual option names (e.g. `auc.method`) cannot be mapped through `formalsmap`; only the whole `options` list can, and parameter functions read specific settings from it via `PKNCA.choose.option()`.
 
 ## Writing a custom parameter
 
@@ -127,7 +134,7 @@ as.data.frame(o_nca) |>
 
 ## Options system
 
-`PKNCA.options()` is a named list stored as a package-level environment. It is accessed in three ways:
+PKNCA's options are stored in a package-level environment; `PKNCA.options()` returns them as a named list. It is accessed in several ways:
 
 ```{r}
 # 1. Read all options
@@ -157,13 +164,15 @@ Sparse PK (one or two samples per subject, common in preclinical or paediatric s
 - Mean concentration-time profile is computed, then NCA is run on that profile
 - Supported parameters are flagged with `sparse = TRUE` in their `add.interval.col()` registration
 
-## Key internal functions
+## Key functions
+
+All of these are exported except where marked internal:
 
 | Function | Purpose |
 |---|---|
 | `get.interval.cols()` | Return full parameter registry |
-| `PKNCA:::sort.interval.cols()` | Topological sort → execution order |
-| `PKNCA:::pk.nca.interval()` | Compute all parameters for one interval/group |
+| `PKNCA:::sort_interval_cols()` | Topological sort → execution order (internal, unexported) |
+| `pk.nca.interval()` | Compute all parameters for one interval/group |
 | `pknca_units_table()` | Build unit assignment/conversion table |
 | `PKNCA_impute_method_*()` | Built-in imputation methods |
 | `pk.calc.auc.last()` | Core AUC calculation (trapezoidal) |

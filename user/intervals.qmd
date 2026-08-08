@@ -22,7 +22,7 @@ An interval specification is a plain R `data.frame` with one row per calculation
 | `start` | numeric | Start of the calculation window (same units as time) |
 | `end`   | numeric | End of the calculation window; use `Inf` for open-ended windows |
 
-Every remaining column is a **parameter flag**: its name must match a known PKNCA parameter name and its value must be `TRUE` (calculate) or `FALSE` (skip). Columns set to `FALSE` are simply ignored, so you only need to list the parameters you actually want.
+Every remaining column is normally a **parameter flag**: its name must match a known PKNCA parameter name and its value must be `TRUE` (calculate) or `FALSE` (skip). Columns set to `FALSE` are simply ignored, so you only need to list the parameters you actually want. The exceptions are grouping columns used for matching (see the group-matching section below), an `impute` column (see the Imputation chapter), and columns carried through to the results via the `keep_interval_cols` option.
 
 ```{r interval-structure}
 # A minimal interval: AUClast over the first 24 hours
@@ -47,7 +47,7 @@ data.frame(
 )
 ```
 
-Column names cannot overlap with `start`, `end`, or any grouping variable name you use in `PKNCAconc()`.
+A parameter cannot be named `start`, `end`, or the same as a grouping variable you use in `PKNCAconc()` — a column whose name matches a grouping variable is treated as a matching key, not a parameter flag.
 
 ---
 
@@ -77,6 +77,20 @@ default_interval <- data.frame(
 ```
 
 If an interval row has no group columns, it is a **default interval** and is applied to every group present in the concentration data that does not have a more specific match. This is useful when the same calculation windows apply to all subjects and analytes.
+
+Running the subject-specific intervals shows the matching in action. To keep the output short, restrict the concentration data to subjects 1–3. Subject 3 has no matching interval row, so PKNCA warns about it and returns results only for subjects 1 and 2 (no dose object is needed here because `auclast` is dose-independent):
+
+```{r group-matching-run}
+d_conc_subset <- PKNCAconc(
+  Theoph |> filter(Subject %in% c("1", "2", "3")),
+  conc ~ Time | Subject
+)
+o_data_subj <- PKNCAdata(d_conc_subset, intervals = subject_intervals)
+o_nca_subj  <- pk.nca(o_data_subj)
+
+as.data.frame(o_nca_subj) |>
+  select(Subject, start, end, PPTESTCD, PPORRES)
+```
 
 ---
 
@@ -143,29 +157,31 @@ Some sampling designs record a *duration* rather than an instantaneous sample �
 
 When a concentration object carries duration information, PKNCA selects samples for an interval based on **both the start and end of the collection period**. The collection end time must fall at or before the interval `end` for the sample to be included:
 
-```{r duration-concept, eval=FALSE}
-# Urine example: each row covers a collection period
+```{r duration-concept}
+# Urine collected 0-4, 4-8, and 8-24 h after a 100 mg oral dose
 urine_conc <- data.frame(
-  Subject  = rep(1, 4),
-  Time     = c(0,  4,  8,  24),   # collection start times
-  duration = c(4,  4,  16, 0),    # collection lengths (hours)
-  conc     = c(0.5, 1.2, 0.9, 0.3)
+  Subject  = 1,
+  time     = c(0, 4, 8),        # collection start times (h)
+  duration = c(4, 4, 16),       # collection lengths (h)
+  conc     = c(20, 15, 5),      # urine concentration (mg/L)
+  volume   = c(0.5, 0.6, 1.2)   # collected urine volume (L)
 )
-
 d_urine_conc <- PKNCAconc(
-  urine_conc,
-  conc ~ Time | Subject,
-  duration = "duration"
+  urine_conc, conc ~ time | Subject,
+  duration = "duration", volume = "volume"
 )
+d_urine_dose <- PKNCAdose(
+  data.frame(Subject = 1, dose = 100, time = 0),
+  dose ~ time | Subject
+)
+# end = 24 matches the end of the final collection (8 + 16 = 24)
+urine_intervals <- data.frame(start = 0, end = 24, ae = TRUE)
 
-# The interval end must align with a collection end time
-urine_intervals <- data.frame(
-  start    = 0,
-  end      = 24,   # matches the end of the 8-h collection (8 + 16 = 24)
-  ae       = TRUE,
-  clr.last = TRUE
-)
+o_urine <- pk.nca(PKNCAdata(d_urine_conc, d_urine_dose, intervals = urine_intervals))
+as.data.frame(o_urine)
 ```
+
+`ae` (amount excreted) is the sum of concentration × volume over the collections in the interval: $20 \times 0.5 + 15 \times 0.6 + 5 \times 1.2 = 25$ mg of the 100 mg dose.
 
 For IV infusions, `setDuration()` on the dose object sets the infusion duration, and `ceoi` (concentration at end of infusion) becomes calculable within an interval whose `end` matches the infusion end time.
 
@@ -222,7 +238,7 @@ Some parameters depend on others being computed first. `get.parameter.deps()` re
 get.parameter.deps("auclast")
 ```
 
-This is useful when you enable a high-level parameter and want to know which intermediate quantities will also be computed. Dependencies are resolved automatically — you do not need to set dependency flags to `TRUE` manually.
+This is useful when you plan to modify or exclude a parameter and want to know which downstream parameters depend on it. Dependencies are resolved automatically — you do not need to set dependency flags to `TRUE` manually.
 
 ---
 

@@ -59,7 +59,7 @@ flowchart LR
 ## What's new in 0.12.2
 
 - **`normalize_by_col()` / `normalize()`** — dose-normalize results using a column in the result data frame
-- **`tmin` parameter** — minimum pre-Tmax concentration
+- **`tmin` parameter** — time of minimum observed concentration
 - **Tobit regression** for half-life (now on CRAN; previously GitHub only)
 - **Sparse AUMC** and five new sparse-derived parameters (`cl.sparse.last`, `kel.sparse.last`, `mrt.ivint.last`, `vss.sparse.last`, `vz.sparse.last`)
 - **New excretion parameters**: `volpk`, `ermax`, `ertmax`, `ertlst`, dose-normalized renal clearance (`clr.*.dn`)

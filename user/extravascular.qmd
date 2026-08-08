@@ -221,15 +221,7 @@ as.data.frame(o_nca_tlag) |>
 
 ### Bioavailability (f)
 
-`f` computes the ratio of AUC between two routes or treatments within the same subject. It requires a **reference** AUC in the grouping structure (typically set up with a treatment or period column).
-
-```{r}
-# Syntax: request f = TRUE; PKNCA computes AUC_test / AUC_reference
-# Requires a grouping column that identifies test vs. reference
-# Example structure (illustrative — Theoph is single-arm):
-data.frame(start = 0, end = Inf, aucinf.obs = TRUE, f = FALSE)
-# f = TRUE only makes sense when the data has paired test/reference periods
-```
+`f` computes relative bioavailability — the dose-normalized AUC ratio of a test treatment against a reference treatment — via `pk.calc.f()`. It requires a **reference** AUC in the grouping structure (typically a treatment or period column in a crossover design), so requesting `f = TRUE` only makes sense when the data contain paired test/reference arms. Theoph is single-arm, so there is no reference here — see the [Bioavailability](#bioavailability) section below for an illustrative setup.
 
 > See `?pk.calc.f` for the full setup. `f` is typically used in crossover bioequivalence studies.
 
@@ -363,21 +355,22 @@ d_conc_missing <- d_conc |>
 
 o_conc_miss <- PKNCAconc(d_conc_missing, conc ~ time | subject)
 
-# With imputation: add back a 0 at time 0
+# With imputation: start_conc0 adds conc = 0 at the interval start
 o_data_imputed <- PKNCAdata(
   o_conc_miss, o_dose,
   intervals = ev_intervals,
-  impute = "start_predose"
+  impute = "start_conc0"
 )
 
 o_nca_imputed <- pk.nca(o_data_imputed)
 
-# Compare subject 1 AUC with and without imputation
+# Compare subject 1 AUClast: original data vs. missing predose imputed as 0
 bind_rows(
   as.data.frame(o_nca) |> filter(subject == "1", PPTESTCD == "auclast") |> mutate(version = "original"),
   as.data.frame(o_nca_imputed) |> filter(subject == "1", PPTESTCD == "auclast") |> mutate(version = "imputed")
 ) |>
-  select(version, PPTESTCD, PPORRES)
+  select(version, PPTESTCD, PPORRES) |>
+  as.data.frame()  # base print shows full precision; the difference is small
 ```
 
 **Per-interval imputation** — apply different methods to different calculation windows:
@@ -388,7 +381,7 @@ d_intervals_impute <- data.frame(
   start   = 0,
   end     = Inf,
   auclast = TRUE,
-  impute  = "start_predose"
+  impute  = "start_conc0"
 )
 
 o_data_per_interval <- PKNCAdata(
@@ -402,8 +395,7 @@ o_data_per_interval <- PKNCAdata(
 
 ## Bioavailability
 
-Bioavailability (F) compares AUC from the EV route to AUC from an IV reference.
-PKNCA calculates this if you supply both an IV and an EV `PKNCAresults` object.
+Bioavailability (F) compares dose-normalized exposure from the EV route against an IV reference. In PKNCA, F is computed via the `f` interval parameter — backed by `pk.calc.f()` — which requires the test and reference treatments to be distinguished in the grouping structure (e.g. a treatment or period column), with the reference AUC available for the ratio. Theoph (oral theophylline) and Indometh (IV indomethacin) are different drugs from different studies, so no real F can be computed here; the code below only illustrates the AUC inputs and the arithmetic:
 
 ```{r}
 # IV reference (using Indometh as stand-in — illustrative syntax only)
@@ -412,13 +404,13 @@ d_iv_dose <- data.frame(Subject = unique(d_iv_conc$Subject), dose = 25, time = 0
 
 o_iv_conc <- PKNCAconc(d_iv_conc, conc ~ time | Subject)
 o_iv_dose <- PKNCAdose(d_iv_dose, dose ~ time | Subject, route = "intravascular")
-o_iv_data <- PKNCAdata(o_iv_conc, o_iv_dose, intervals = data.frame(
-  start = 0, end = Inf, aucinf.obs = TRUE
-))
+o_iv_data <- PKNCAdata(
+  o_iv_conc, o_iv_dose,
+  intervals = data.frame(start = 0, end = Inf, aucinf.obs = TRUE),
+  impute = "start_conc0"  # Indometh has no t = 0 sample
+)
 o_iv_nca <- pk.nca(o_iv_data)
 
-# pk.business.rule: bioavailability is computed via pk.calc.f()
-# Use pk.calc.f() directly when you have matched IV and EV AUCs
 iv_aucinf <- as.data.frame(o_iv_nca) |>
   filter(PPTESTCD == "aucinf.obs") |>
   summarise(mean_aucinf = mean(PPORRES)) |>
@@ -429,25 +421,22 @@ ev_aucinf <- as.data.frame(o_nca_auc) |>
   summarise(mean_aucinf = mean(PPORRES)) |>
   pull(mean_aucinf)
 
-# F (%) = (AUC_ev / Dose_ev) / (AUC_iv / Dose_iv) * 100
-# These datasets use different drugs, so this is illustrative only:
-cat("Illustrative F calculation:\n")
-cat(sprintf("  IV AUCinf (mean): %.2f\n", iv_aucinf))
-cat(sprintf("  EV AUCinf (mean): %.2f\n", ev_aucinf))
+# F = (AUC_ev / Dose_ev) / (AUC_iv / Dose_iv); here only the AUC ratio is shown
+cat(sprintf("Mean IV AUCinf (Indometh): %.2f\n", iv_aucinf))
+cat(sprintf("Mean EV AUCinf (Theoph):   %.2f\n", ev_aucinf))
+cat(sprintf("AUC ratio EV/IV: %.1f — illustrative only, different drugs\n",
+            ev_aucinf / iv_aucinf))
 ```
 
-> For a real bioavailability study, subjects would receive both IV and EV treatments, and `pk.calc.f()` handles the ratio calculation accounting for dose scaling.
+> In a real bioavailability study, subjects receive both the IV reference and the EV test treatment, and `pk.calc.f()` computes F as the dose-normalized AUC ratio of test to reference.
 
 ---
 
 ## Multiple-dose / steady-state
 
-For multiple-dose studies, specify the dosing interval in your intervals data frame. PKNCA will compute accumulation-relevant parameters:
+For multiple-dose data, request steady-state parameters over a tau interval — see the [Multiple-Dose chapter](multiple-dose.qmd) for the full workflow. Here the interval syntax is demonstrated on the single-dose Theoph data:
 
 ```{r}
-# Steady-state interval parameters
-ss_params <- c("cmax", "cmin", "tmax", "auclast", "half.life", "lambda.z")
-
 ss_intervals <- data.frame(
   start  = 0,
   end    = 24,
@@ -469,13 +458,13 @@ as.data.frame(o_nca_ss) |>
 
 ## Excluding observations
 
-Mark individual time points to exclude (e.g., emesis within 2× Tmax, suspected contamination):
+Mark individual time points to exclude (e.g., vomiting within 2× median Tmax, suspected contamination):
 
 ```{r}
 d_conc_excl <- d_conc |>
   mutate(
-    exclude_reason = ifelse(subject == "5" & time == 7.02,
-                            "vomiting within 2h of Tmax", NA_character_)
+    exclude_reason = ifelse(subject == "5" & time == 2.02,
+                            "vomiting within 2x median Tmax", NA_character_)
   )
 
 o_conc_excl <- PKNCAconc(d_conc_excl, conc ~ time | subject, exclude = "exclude_reason")
@@ -497,7 +486,7 @@ The default is `list(first = "keep", middle = "drop", last = "keep")`:
 - `middle` — BLQs sandwiched between non-BLQ values (dropped by default)
 - `last` — BLQs after the last non-BLQ concentration (keep by default)
 
-You can override globally or with positional keys:
+You can override globally, per-position (`first`/`middle`/`last`), or relative to Tmax (`before.tmax`/`after.tmax`); the action can be `"keep"`, `"drop"`, or a numeric replacement value:
 
 ```{r}
 # Global: treat all BLQ as 0
@@ -538,7 +527,7 @@ The default integration method is **lin up / log down** (linear interpolation on
 o_data_lin <- PKNCAdata(o_conc, o_dose, intervals = ev_intervals,
                          options = list(auc.method = "linear"))
 
-# Method 2: lin-log (log trapezoidal throughout — not recommended)
+# Method 2: lin-log (linear before Tmax, log trapezoidal after Tmax)
 o_data_linlog <- PKNCAdata(o_conc, o_dose, intervals = ev_intervals,
                             options = list(auc.method = "lin-log"))
 
@@ -618,7 +607,7 @@ All extravascular-relevant parameters you can request in an interval:
 interval_cols <- get.interval.cols()
 ev_relevant <- c(
   # Concentration / time landmarks
-  "cmax", "tmax", "cmin", "tfirst", "tlast", "tlag",
+  "cmax", "tmax", "cmin", "tmin", "tfirst", "tlast", "tlag",
   "clast.obs", "clast.pred", "count_conc", "count_conc_measured",
   # AUC family
   "auclast", "aucall", "aucinf.obs", "aucinf.pred",

@@ -52,7 +52,7 @@ $$C_{\text{trough}}(n) = C_{ss} \cdot \left(1 - e^{-k_{\text{tss}} \cdot n}\righ
 
 Reports TSS as the dose occasion at which the predicted concentration reaches a specified fraction of Css (default: 90% = `tss.fraction = 0.9`).
 
-Returns population, population-individual (popind), individual, and single-subject estimates.
+Returns population, population-individual (popind), individual, and pooled single-model estimates (`single` fits one model to all data, ignoring subject differences).
 
 ```{r}
 tss_mono <- pk.tss.monoexponential(
@@ -132,7 +132,7 @@ tss_combined
 | Argument | Default | Meaning |
 |---|---|---|
 | `conc` | — | Trough concentrations (one per dose occasion per subject) |
-  | `time` | — | Dose occasion numbers or actual clock times |
+| `time` | — | Dose occasion numbers or actual clock times |
 | `subject` | — | Subject identifiers |
 | `time.dosing` | — | All possible dosing occasions in the study (needed to define the full grid) |
 | `tss.fraction` | `0.9` | Fraction of Css that defines "at steady state" (monoexponential method) |

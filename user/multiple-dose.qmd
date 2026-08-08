@@ -47,7 +47,7 @@ n_subjects <- 4
 
 d_conc_ss <- expand.grid(Subject = factor(1:n_subjects), time = timepoints) |>
   mutate(
-    # Add ~20% log-normal IIV on clearance (ke)
+    # Add ~20% log-normal inter-individual variability (IIV) on the elimination rate constant (ke)
     ke_i  = ke * exp(rnorm(n(), 0, 0.2)),
     conc  = mapply(C_ss, time, ka, ke_i, V, dose, tau) + rnorm(n(), 0, 0.05),
     conc  = pmax(conc, 0)
@@ -152,24 +152,30 @@ as.data.frame(o_nca_ss) |>
 
 ### Ceoi — concentration at end of infusion
 
-For IV infusions, `ceoi` is the concentration at the moment the infusion ends (= `start + duration`). For bolus or oral dosing, it equals `cmax` at the appropriate time.
+`ceoi` is the concentration at the end of infusion (time = dose time + `duration`). It is meaningful only for infusion dosing with a nonzero duration; for bolus or oral dosing (duration 0) it is generally not meaningful — it simply returns the concentration at the dose time.
 
 ```{r}
-ceoi_interval <- data.frame(
-  start  = 0,
-  end    = tau,
-  ceoi   = TRUE,
-  cmax   = TRUE
-)
+# 100 mg infused over 1 h into V = 30 L with CL = 5 L/h (plateau = rate/CL = 20 mg/L)
+ke_inf <- 5 / 30
+t_inf  <- c(0, 0.5, 1, 1.5, 2, 4, 8, 12)
+c_inf  <- ifelse(t_inf <= 1, 20 * (1 - exp(-ke_inf * t_inf)),
+                 20 * (1 - exp(-ke_inf)) * exp(-ke_inf * (t_inf - 1)))
+d_inf      <- data.frame(Subject = 1, time = t_inf, conc = round(c_inf, 3))
+d_dose_inf <- data.frame(Subject = 1, dose = 100, time = 0, duration = 1)
 
-o_nca_ceoi <- pk.nca(PKNCAdata(o_conc_ss, o_dose_ss, intervals = ceoi_interval))
+o_conc_inf <- PKNCAconc(d_inf, conc ~ time | Subject)
+o_dose_inf <- PKNCAdose(d_dose_inf, dose ~ time | Subject,
+                        route = "intravascular", duration = "duration")
+o_nca_inf  <- pk.nca(PKNCAdata(o_conc_inf, o_dose_inf,
+                               intervals = data.frame(start = 0, end = 12,
+                                                      ceoi = TRUE, cmax = TRUE)))
 
-as.data.frame(o_nca_ceoi) |>
+as.data.frame(o_nca_inf) |>
   filter(PPTESTCD %in% c("ceoi", "cmax")) |>
-  select(Subject, PPTESTCD, PPORRES) |>
-  tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES) |>
-  arrange(Subject)
+  select(PPTESTCD, PPORRES)
 ```
+
+Here `ceoi` equals `cmax` because an infusion peaks exactly when the pump stops. After bolus or oral dosing there is no infusion end, so request `cmax`/`tmax` instead.
 
 ---
 
@@ -179,7 +185,7 @@ When data span multiple dose occasions, define one interval row per occasion per
 
 ```{r}
 # Two dosing intervals: 0-12h and 12-24h
-# The t=12 sample belongs to the START of the second interval; exclude it from the first
+# Drop the duplicate t=12 row before shifting; PKNCA uses a boundary sample for both adjacent intervals
 d_conc_occ1 <- d_conc_ss |> filter(time < 12)   # first interval: 0 to <12
 d_conc_occ2 <- d_conc_ss |> mutate(time = time + 12)  # second interval: 12 to 24
 
@@ -216,7 +222,7 @@ as.data.frame(o_nca_2d) |>
 
 ## Finding tau automatically: `find.tau()`
 
-When the dosing interval is not known a priori, `find.tau()` estimates it from a numeric vector of dose times. It returns the most common (modal) inter-dose interval.
+When the dosing interval is not known a priori, `find.tau()` estimates it from a numeric vector of dose times. If the doses are equally spaced it returns that spacing; otherwise it searches the candidate intervals in `tau.choices` for the repeating interval most consistent with the dose times. Sentinel values flag special cases: `0` when all doses occur at a single time, `-1` when no candidate interval repeats, and `NA` when tau cannot be determined.
 
 ```{r}
 # Dose times for one subject: 0, 12, 24, 36, 48, 60 h
@@ -234,13 +240,13 @@ cat("Detected tau:", tau_detected, "h\n")
 
 ---
 
-## Vss at multiple dose (`vss.md.*`)
+## Multiple-dose Vss (`vss.md.*`)
 
-`vss.md.obs` and `vss.md.pred` are the volume of distribution at steady state using the multiple-dose MRT formula:
+`vss.md.obs` and `vss.md.pred` are estimates of the volume of distribution at steady state using the multiple-dose MRT formula:
 
 $$V_{ss} = CL \times MRT_{md}$$
 
-where MRT_md accounts for the accumulation over repeated dosing.
+where `mrt.md` accounts for the accumulation over repeated dosing.
 
 | Parameter | Meaning |
 |---|---|
@@ -249,7 +255,7 @@ where MRT_md accounts for the accumulation over repeated dosing.
 | `vss.md.obs` | Vss from mrt.md.obs and cl.last |
 | `vss.md.pred` | Vss from mrt.md.pred and cl.last |
 
-> **Note:** `vss.md.*` and `mrt.md.*` require the `tau` argument internally but PKNCA 0.12.1 does not correctly resolve it from the interval specification for general use. These parameters work correctly when PKNCA can determine tau from the dosing schedule. Use them in conjunction with explicitly specified tau intervals and verify output against manual calculations.
+> **Note:** As of the version this book was built against, `vss.md.*` may fail to resolve its MRT inputs from the interval specification (the calculation errors rather than returning a value). If you need Vss at steady state, compute it manually from `cl.*` and `mrt.md.*` results.
 
 
 ---

@@ -58,15 +58,26 @@ remotes::install_github(
 ```{r run-tests, eval=FALSE}
 if (!requireNamespace("testthat")) install.packages("testthat")
 
-# Option A — via devtools (recommended during development)
-devtools::test(system.file(package = "PKNCA"))
-
-# Option B — via testthat directly
+# Option A — via testthat (recommended; the same call PKNCA's validation
+# vignette uses)
 testthat::test_package("PKNCA")
 
-# Option C — full R CMD CHECK (most rigorous; runs examples too)
-# From a terminal:
-# R CMD CHECK $(R -e 'cat(find.package("PKNCA"))')
+# Option B — via base R's tools package (also runs the installed tests;
+# writes result files to the working directory)
+tools::testInstalledPackage("PKNCA", types = "tests")
+```
+
+**Option C — full `R CMD check`** is the most rigorous route (it also runs examples and vignettes). It checks a *source* package rather than the installed library, so download the released source tarball first:
+
+```{r download-source, eval=FALSE}
+# eval=FALSE: downloads a file; the check itself runs outside R
+download.packages("PKNCA", destdir = ".", type = "source")
+```
+
+Then, from a terminal:
+
+```sh
+R CMD check PKNCA_<version>.tar.gz
 ```
 
 ---
@@ -76,12 +87,12 @@ testthat::test_package("PKNCA")
 A passing run reports the number of tests, the number of expectations checked, and zero failures. A typical run looks like:
 
 ```
-[ FAIL 0 | WARN 0 | SKIP n | PASS N ]
+[ FAIL 0 | WARN w | SKIP n | PASS N ]
 ```
 
 - **FAIL 0** — no calculation errors; the install is valid.
 - **SKIP n** — some tests are conditionally skipped (e.g., tests that require internet access, or environment-specific checks). Skips are expected and do not indicate a problem.
-- **WARN** — warnings during tests are expected; the PKNCA validation vignette explicitly notes that warnings appear during testing and are not displayed in the published vignette.
+- **WARN w** — warnings during tests are expected; the PKNCA validation vignette explicitly notes that warnings appear during testing and are not displayed in the published vignette.
 
 If any failures are reported, the output shows the test file, test name, and the specific expectation that failed — compare the `expected` and `actual` values to diagnose whether the issue is a platform difference or a genuine calculation error.
 
