@@ -181,7 +181,7 @@ Here `ceoi` equals `cmax` because an infusion peaks exactly when the pump stops.
 
 ## Multiple dosing occasions in one dataset
 
-When data span multiple dose occasions, define one interval row per occasion per group. PKNCA applies each interval independently. For the full interval-specification rules, see the vignette [Selection of Calculation Intervals](https://humanpred.github.io/pknca/articles/v03-selection-of-calculation-intervals.html).
+When data span multiple dose occasions, define one interval row per occasion per group. PKNCA applies each interval independently. For the full interval-specification rules, see the vignette [Selection of Calculation Intervals](https://humanpred.github.io/pknca/articles/v03-selection-of-calculation-intervals.html). Note the asymmetry at interval boundaries: a concentration sample at a shared boundary serves both adjacent intervals, but a dose at exactly `t = end` belongs to the next interval — dose filtering excludes the interval end (here, the $t = 12$ dose counts in the 12–24 h interval, not the 0–12 h one).
 
 ```{r}
 # Two dosing intervals: 0-12h and 12-24h

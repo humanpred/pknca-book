@@ -115,9 +115,12 @@ head(u_from_data, 6)
 args(getS3method("pknca_units_table", "default"))
 ```
 
-All four of `concu`, `doseu`, `amountu`, `timeu` are required. PKNCA derives
-composite units automatically (e.g. `auclast` gets `h*mg/L` from `timeu="h"`
-and `concu="mg/L"`).
+Every unit argument is optional: supply the families you have, and any
+parameter whose unit depends on an omitted family gets an `NA` unit in the
+table (e.g. omitting `doseu` leaves `cl.obs` without a unit). Supplying all
+four of `concu`, `doseu`, `amountu`, and `timeu` populates a unit for every
+parameter. PKNCA derives composite units automatically (e.g. `auclast` gets
+`h*mg/L` from `timeu="h"` and `concu="mg/L"`).
 
 ### Output columns
 

@@ -26,7 +26,7 @@ PKNCA offers four families of AUC — AUClast, AUCall, AUCinf (in observed and p
 | Parameter | End point | BLQ treatment | When to use |
 |---|---|---|---|
 | `auclast` | Last measurable concentration | BLQs after last non-BLQ are ignored | Default; most studies |
-| `aucall` | Last measured timepoint | Post-last-measurable BLQs treated as 0 | When you want to include the BLQ tail |
+| `aucall` | Through the first BLQ after Tlast (later BLQs contribute zero) | Post-last-measurable BLQs treated as 0 | When you want to include the BLQ tail |
 | `aucinf.obs` | Extrapolated to ∞ (using observed Clast) | — | When half-life is reliable |
 | `aucinf.pred` | Extrapolated to ∞ (using predicted Clast from λz fit) | — | When Clast is noisy |
 | `aucint.*` | Any user-defined time window | — | Partial AUC, bioequivalence |
@@ -269,6 +269,8 @@ $$\text{AUMC} = \int_0^{t_{\mathrm{last}}} t \cdot C(t) \, dt$$
 | `aumcall` | AUMC from 0 to last, treating BLQ as 0 |
 | `aumcinf.obs` | AUMC extrapolated to ∞, observed Clast |
 | `aumcinf.pred` | AUMC extrapolated to ∞, predicted Clast |
+
+In PKNCA ≥ 0.12.2 the AUMC family mirrors the AUC families: interval AUMC (`aumcint.last`, `aumcint.all`, `aumcint.inf.obs`, `aumcint.inf.pred`, plus their `.dose` variants with dose-aware boundary interpolation) and IV AUMC with C0 back-extrapolation (`aumciv*`, e.g. `aumcivlast`, `aumcivinf.obs`) are available and requested like any other interval parameter.
 
 ```{r}
 aumc_interval <- data.frame(

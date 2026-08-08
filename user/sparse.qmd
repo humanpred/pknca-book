@@ -113,7 +113,7 @@ PKNCA returns three values for sparse AUC:
 
 1. At each timepoint, compute the **mean concentration** across subjects (pooling all subjects sampled at that time)
 2. Apply the **linear** trapezoidal rule to the mean profile to get AUClast (sparse AUC uses linear weights — see `sparse_auc_weight_linear` — as required by the Nedelman–Jia variance)
-3. Estimate **variance** using the Nedelman & Jia (1998) formula, accounting for the covariance between AUC trapezoids via the Holder (2001) method (full citations are in the vignette)
+3. Estimate **variance** using the Nedelman & Jia (1998) formula, accounting for the covariance between AUC trapezoids via the Holder (2001) method (full citations are in `?var_sparse_auc` and `?cov_holder`)
 4. Return AUClast ± SE and degrees of freedom
 
 ```{r}
@@ -129,7 +129,7 @@ mean_profile
 
 ## BLQ handling in sparse PK
 
-`sparse = TRUE` affects how below-the-limit-of-quantification (BLQ) values (coded as 0) are treated at each timepoint before averaging. The default BLQ treatment is controlled by `PKNCA.options("conc.blq")` and applies **before** the mean is computed.
+Below-the-limit-of-quantification (BLQ) values (coded as 0) are **not** pre-processed before averaging. Sparse AUC proceeds in three steps: pool the raw per-timepoint concentrations (zeros retained), apply the `sparse_mean()` rule below to obtain the mean profile, then integrate that mean profile. Per-analysis options are **not** forwarded to the final integration step, so `PKNCAdata(..., options = list(conc.blq = ...))` has **no effect** on sparse AUC; only the *global* `PKNCA.options("conc.blq")` setting applies to the mean profile. Under the global default (`middle = "drop"`), an interior timepoint zeroed by the majority-BLQ rule is dropped and interpolated across, rather than integrated as 0. (The missing options-forwarding is a candidate for an upstream PKNCA issue report.)
 
 By default the mean profile uses the arithmetic mean with up-to-50%-BLQ handling (`"arithmetic mean, <=50% BLQ"`; see `?sparse_mean`); the method is not a user-facing option. The two internal methods:
 
@@ -202,7 +202,7 @@ if (!is.na(df) && !is.na(se)) {
 | Profile per subject | Full individual profile | 1–few samples only |
 | NCA run on | Each subject's own profile | Pooled mean profile |
 | Result | One row per subject per parameter | One row per parameter (population level) |
-| Half-life | ✓ (per subject) | ✗ (not available) |
+| Half-life | ✓ (per subject) | ✓ on the pooled mean profile only (no per-subject λz; may warn with few points) |
 | AUClast | ✓ | ✓ (`sparse_auclast`) |
 | SE of AUC | ✗ | ✓ (`sparse_auc_se`) |
 | Interval col name | `auclast` | `sparse_auclast` |

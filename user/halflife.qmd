@@ -20,23 +20,23 @@ o_dose <- PKNCAdose(d_dose, dose ~ time | subject, route = "extravascular")
 
 ## How PKNCA estimates λz
 
-PKNCA uses **curve stripping**: it systematically evaluates every terminal window ending at the last point (last 3 points, last 4, and so on up to the full tail), fits log-linear regression to each subset, and selects the best fit based on adjusted R².
+PKNCA uses **curve stripping**: it systematically fits log-linear regression to every terminal window ending at the last point (last 3 points, last 4, and so on up to the full tail, each with at least `min.hl.points` points) and computes the adjusted R² for **all** of them — the λz > 0 check comes later, not before fitting.
 
-The selection criterion uses a **tolerance window**: among all subsets that yield a valid fit (λz > 0), PKNCA picks the one with the **most points** whose adjusted R² is within `adj.r.squared.factor` of the best adjusted R²:
+Selection then proceeds in this order: the tolerance is anchored to the **best adjusted R² across all fitted windows, including windows with λz ≤ 0** (an increasing terminal fit). A window is kept only if its λz > 0 **and** its adj.R² is within `adj.r.squared.factor` of that overall best; among the survivors, the window with the **most points** is selected. If no window survives, `half.life` is `NA`:
 
-> selected n = the largest n whose adj.R² is within `adj.r.squared.factor` of the best adj.R²
+> selected n = the largest n with λz > 0 whose adj.R² is within `adj.r.squared.factor` of the best adj.R² over **all** windows
 
-The small tolerance (`adj.r.squared.factor`, default 0.0001) means: prefer longer windows (more points → more accurate λz) unless the longer window's adj.R² is noticeably worse than the best. This is a **model-selection tolerance**, not a per-point penalty added to R².
+The small tolerance (`adj.r.squared.factor`, default 0.0001) means: prefer longer windows (more points → more accurate λz) unless the longer window's adj.R² is noticeably worse than the best. This is a **model-selection tolerance**, not a per-point penalty added to R². Because the anchor includes λz ≤ 0 windows, a well-fitting *increasing* tail can set the bar so high that no decreasing window is within tolerance, and `half.life` is then `NA` even though windows with λz > 0 exist; this gate ordering differs from Phoenix WinNonlin, which anchors its best-fit selection to valid (λz > 0) windows only.
 
 ```{mermaid}
 flowchart TD
-    A["All points after Tmax"] --> B["Try subsets: last 3, last 4, ..., all"]
-    B --> C["Fit log-linear regression to each"]
-    C --> D{"Valid fit?<br/>λz > 0<br/>≥ min.hl.points points"}
-    D -- yes --> E["Compute adj.R²"]
-    D -- no --> F["Discard subset"]
-    E --> G["Select longest window within adj.r.squared.factor of best adj.R²"]
-    G --> H["Return λz, half.life, R², n.points"]
+    A["All points after Tmax"] --> B["Windows ending at the last point:<br/>last 3, last 4, ..., all<br/>(each with ≥ min.hl.points points)"]
+    B --> C["Fit log-linear regression to every window"]
+    C --> D["Compute adj.R² for every window<br/>best = max adj.R² over ALL windows<br/>(including windows with λz ≤ 0)"]
+    D --> E{"Any window with λz > 0 AND adj.R²<br/>within adj.r.squared.factor of best?"}
+    E -- yes --> F["Keep those windows;<br/>select the one with the most points"]
+    F --> G["Return λz, half.life, R², n.points"]
+    E -- "none survive" --> H["half.life = NA"]
 ```
 
 The algorithm is described step-by-step in the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
@@ -183,6 +183,8 @@ as.data.frame(o_nca_tmax) |>
 
 See also [manual point selection](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html#manual-point-selection) in the Half-Life Calculation vignette.
 
+Both markers are per-measurement logical columns with three states: `TRUE` (marked), `FALSE` (not marked), and `NA` (undefined). Leave a value `NA` — not `FALSE` — wherever the mechanism should not apply, because a column counts as "in use" for an interval unless it is entirely `NA` there (an all-`FALSE` column still counts as in use). Only one of the two mechanisms may be in use for a given interval: if both `include_half.life` and `exclude_half.life` have non-`NA` values in the same interval, `pk.nca()` stops with the error "Cannot both include and exclude half-life points for the same interval" (`PKNCAconc()` accepts both columns without complaint; the error surfaces at calculation time).
+
 ### Excluding specific points (`exclude_half.life`)
 
 Mark individual observations that should never be included in the λz regression — for example, a suspected outlier or a secondary peak.
@@ -228,7 +230,7 @@ as.data.frame(o_nca_incl) |>
   select(PPTESTCD, PPORRES)
 ```
 
-> **Note:** `include_half.life` forces the curve-stripping algorithm to always start at or before the earliest forced point. If the forced point is early in the profile, this can result in a worse fit (lower R²) — the point is still included even if it pulls the regression down.
+> **Note:** The marked points are fit verbatim, even if the fit is poor — no quality-based selection is applied. The only flag PKNCA raises is for a negative λz (an increasing fit), recorded as an exclusion reason on the result.
 
 ---
 

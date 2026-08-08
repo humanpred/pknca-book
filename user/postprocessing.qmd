@@ -105,10 +105,10 @@ PKNCA provides ready-made rule functions to pass to `exclude(FUN=...)`. Unlike a
 | `exclude_nca_min.hl.r.squared(min.hl.r.squared)` | half-life unadjusted R² < `min.hl.r.squared` (default from `PKNCA.options("min.hl.r.squared")`) |
 | `exclude_nca_min.hl.adj.r.squared(min.hl.adj.r.squared = 0.9)` | half-life adjusted R² < `min.hl.adj.r.squared` (stricter: adjusted for the number of points) |
 | `exclude_nca_max.aucinf.pext(max.aucinf.pext)` | %AUCextrap > `max.aucinf.pext` (default from `PKNCA.options("max.aucinf.pext")`) |
-| `exclude_nca_tmax_0()` | Tmax at or before 0 (shortcut for `exclude_nca_tmax_early(0)`) |
-| `exclude_nca_tmax_early(tmax_early = 0)` | Tmax at or before a threshold time (`tmax_early`, default 0) |
+| `exclude_nca_tmax_0()` | Tmax ≤ 0 (implemented as `exclude_nca_tmax_early(1e-99)`, so zero and negative Tmax are flagged — `exclude_nca_tmax_early(0)` itself would flag nothing) |
+| `exclude_nca_tmax_early(tmax_early = 0)` | Tmax strictly before the threshold time `tmax_early` (default 0); Tmax exactly at the threshold is kept |
 | `exclude_nca_count_conc_measured(min_count, exclude_param_pattern = ...)` | fewer than `min_count` measured concentrations; excludes the AUC-family parameters matching `exclude_param_pattern` |
-| `exclude_nca_by_param(parameter, min_thr = NULL, max_thr = NULL, affected_parameters = parameter)` (≥ 0.12.2) | the value of `parameter` falls outside `[min_thr, max_thr]`; excludes `affected_parameters` (default: `parameter` itself) |
+| `exclude_nca_by_param(parameter, min_thr = NULL, max_thr = NULL, affected_parameters = parameter)` (≥ 0.12.1) | the value of `parameter` falls outside `[min_thr, max_thr]`; excludes `affected_parameters` (default: `parameter` itself) |
 
 ```{r}
 # Exclude half-lives where span ratio < 2
@@ -230,9 +230,9 @@ df_bw_norm |>
   head(8)
 ```
 
-> `normalize()` returns **only** the normalized rows, under new parameter names — `auclast` becomes `auclast.bw`, `cmax` becomes `cmax.bw`. To keep both original and normalized values, bind the normalized rows onto the original results: `bind_rows(df_results, df_bw_norm)`.
+> The **data.frame method** used here returns **only** the normalized rows, under new parameter names — `auclast` becomes `auclast.bw`, `cmax` becomes `cmax.bw`. To keep both original and normalized values, bind the normalized rows onto the original results: `bind_rows(df_results, df_bw_norm)`. Calling `normalize()` on the `PKNCAresults` object instead **appends** the normalized rows to the object's results, so the returned object contains both the original and the normalized parameters.
 
-`normalize_by_col()` (≥ 0.12.2) is the low-level internal helper that pulls normalization values from a column already present in the `PKNCAconc` data frame, rather than from a separate table.
+`normalize_by_col()` (≥ 0.12.2) is an exported convenience wrapper around `normalize()` that builds the normalization table from a column already present in the `PKNCAconc` data, rather than taking a separate table.
 
 ---
 
@@ -285,7 +285,7 @@ PKNCA.set.summary(
 
 ## Business summary helpers
 
-PKNCA exports the full set of `business.*` summary functions. These are the defaults `summary()` uses for most parameters, and they are also available directly for custom reporting pipelines.
+PKNCA exports the full set of `business.*` summary functions. These are the defaults `summary()` uses for most parameters, and they are also available directly for custom reporting pipelines. They differ from the plain statistics they wrap by removing `NA` values before computing, returning `NA_real_` when the missing fraction exceeds `PKNCA.options("max.missing")` or the input is empty, counting zeros as missing for the geometric statistics, and attaching an `n` attribute with the number of values used.
 
 | Function | Returns | Description |
 |---|---|---|

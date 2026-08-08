@@ -54,6 +54,8 @@ add.interval.col(
 
 **Key rule:** `FUN` must be a **character string** (the function name), not a function object.
 
+**Return values can carry an exclusion.** A parameter function may attach a reason to its result with `attr(result, "exclude") <- "reason"`; that character string (combined with any exclusion reasons inherited from input parameters) populates the `exclude` column of the result. The sentinel `attr(result, "exclude") <- "DO NOT EXCLUDE"` instead forces the result's `exclude` column to `NA_character_` even when an input carried an exclusion — PKNCA's own AUC functions use it to mark AUC = 0 as a valid result when every concentration in the interval is BLQ.
+
 ### Available `unit_type` values
 
 `"unitless"`, `"fraction"`, `"%"`, `"count"`, `"time"`, `"inverse_time"`, `"amount"`, `"amount_dose"`, `"amount_time"`, `"conc"`, `"conc_dosenorm"`, `"dose"`, `"volume"`, `"auc"`, `"aumc"`, `"auc_dosenorm"`, `"aumc_dosenorm"`, `"clearance"`, `"renal_clearance"`, `"renal_clearance_dosenorm"`
@@ -70,13 +72,17 @@ Standard PKNCA data names available as `formalsmap` values:
 |---|---|
 | `conc` | Concentration vector for the current interval |
 | `time` | Time vector for the current interval |
-| `dose` | Total dose in the current interval |
+| `dose` | Vector of dose amounts in the current interval (one element per dose; sum it for a total — `pk.calc.totdose()` is simply `sum(dose)`) |
 | `start` | Interval start time |
 | `end` | Interval end time |
 | `half.life` | Computed half-life (if in `depends`) |
 | `auclast` | Computed AUClast (if in `depends`) |
 | `cmax` | Computed Cmax (if in `depends`) |
 | *(any parameter name)* | Any other registered parameter in `depends` |
+
+The table is not exhaustive — additional mappable data names include `volume`, `duration.conc`, `time.dose`, `duration.dose`, `route`, `subject`, `lloq` (≥ 0.12.2), and `options`, plus `.group` variants (`conc.group`, `time.group`, `dose.group`, …) that supply the full group-level data rather than the current interval's slice.
+
+Note that `time` (and `time.dose`) are passed **realigned** relative to the interval start: an interval starting at 24 h presents its samples as time-since-24 h. This is harmless in `start = 0` examples like the ones on this page, but it is material for later intervals.
 
 If your function argument names **exactly match** PKNCA's standard names, `formalsmap` can be omitted or left empty.
 

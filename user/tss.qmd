@@ -110,6 +110,8 @@ tss_linear
 
 The result is a data frame with a `tss.stepwise.linear` column containing the first dose occasion number where concentrations are deemed flat (or `NA` if steady state cannot be determined from the data).
 
+When choosing between the two methods, the monoexponential method is generally preferred: in the method-comparison simulations of Maganti et al. (2008), the performance of the stepwise-linear test changed with the number of subjects and timepoints, and it tended to place TSS at **later** timepoints than the true value (a late bias).
+
 ---
 
 ## Running both methods (`pk.tss`)
@@ -140,6 +142,8 @@ tss_combined
 | `type` | `c("monoexponential", "stepwise.linear")` | `pk.tss` wrapper | Which method(s) to run — both by default |
 | `tss.fraction` | `0.9` | monoexponential | Fraction of Css that defines "at steady state" |
 | `output` | `c("population","popind","individual","single")` | monoexponential | Which output types to return |
+| `min.points` | `3` | stepwise.linear | Minimum number of (unique) time points required to fit the trend model |
+| `level` | `0.95` | stepwise.linear | Confidence level for the test of a nonzero slope |
 | `verbose` | `FALSE` | both | Print model fitting details |
 
 > **Note:** TSS estimation requires **multiple dose occasions with consistent trough sampling**. It is not applicable to single-dose studies or studies where trough collection was inconsistent.

@@ -213,7 +213,7 @@ cat("Steady-state Cmax:", round(cmax_ss, 2), "mg/L\n")
 | `auc.type` | No (default `"AUCinf"`) | How to extrapolate the single-dose tail: `"AUCinf"`, `"AUClast"`, or `"AUCall"` |
 | `additional.times` | No | Extra timepoints to include in the output |
 
-Interpolation and tail extrapolation follow [the dose-aware interpolation methods](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
+Interpolation and tail extrapolation use the dose-*unaware* `interp.extrap.conc()`, governed by the `method` argument (default: `PKNCA.options("auc.method")`) and by `auc.type` — see the [AUC integration methods vignette](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
 
 > **Limitation:** Superposition assumes linear PK. It should not be used for drugs with non-linear kinetics (e.g. Michaelis-Menten elimination, time-varying clearance, or saturable protein binding).
 
@@ -221,5 +221,5 @@ Interpolation and tail extrapolation follow [the dose-aware interpolation method
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [superposition()](https://humanpred.github.io/pknca/reference/superposition.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [superposition()](https://humanpred.github.io/pknca/reference/superposition.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html)
 :::

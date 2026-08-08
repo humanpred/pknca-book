@@ -145,6 +145,8 @@ multi_intervals
 
 PKNCA processes each row separately: the first row restricts data to $t \in [0, 24]$ for the `auclast` calculation, while the second row uses all available data to derive terminal parameters.
 
+Interval boundaries are shared by adjacent intervals for concentrations but not for doses: a concentration sample at exactly $t = 24$ serves both a 0–24 and a 24–48 interval, whereas a dose at exactly `t = end` is **not** included in that interval — dose filtering excludes the interval end, so a dose at the boundary belongs to the next interval.
+
 Overlapping intervals are allowed and do not interfere with each other.
 
 ---
@@ -153,7 +155,7 @@ Overlapping intervals are allowed and do not interfere with each other.
 
 Some sampling designs record a *duration* rather than an instantaneous sample — for example, urine collection periods or IV infusions. PKNCA tracks these via the `duration` argument in `PKNCAconc()` and `PKNCAdose()`.
 
-When a concentration object carries duration information, PKNCA selects samples for an interval based on **both the start and end of the collection period**. The collection end time must fall at or before the interval `end` for the sample to be included:
+Even when a concentration object carries duration information, PKNCA selects samples for an interval by the **collection start time** alone: a row is included when its `time` (the start of the collection) falls within `[start, end]`, and `duration` is not consulted during filtering. A collection that straddles the interval `end` therefore contributes its **full** amount to the interval it starts in — an 8–24 h collection is fully included in a 0–12 h interval. To avoid such spillover, align collection boundaries with interval boundaries. (The package vignette currently describes selection by the collection end time as well; the code filters by start time only — an upstream documentation-versus-code discrepancy.)
 
 ```{r duration-concept}
 # Urine collected 0-4, 4-8, and 8-24 h after a 100 mg oral dose

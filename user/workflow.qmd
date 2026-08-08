@@ -32,7 +32,7 @@ Below is the complete workflow with the built-in `Theoph` dataset (oral theophyl
 
 ### Step 1 — Prepare your data
 
-PKNCA typically takes two separate data frames: one for concentrations and one for doses (dose data are optional, but required for dose-dependent parameters such as CL and Vz). Both must be in **long format** (one row per observation).
+PKNCA typically takes two separate data frames: one for concentrations and one for doses (dose data are optional, but required for dose-dependent parameters such as CL and Vz; without dose data, you must supply `intervals` explicitly, because automatic intervals need dose times). Both must be in **long format** (one row per observation).
 
 ```{r}
 # Built-in oral theophylline dataset
@@ -58,7 +58,9 @@ head(d_dose)
 ### Step 2 — PKNCAconc
 
 `PKNCAconc` tells PKNCA the structure of your concentration data via a formula:
-`concentration ~ time | group1 / group2 / ...`
+`concentration ~ time | group1 + group2 + subject`
+
+Additional grouping levels chain with `+`, and the last grouping variable is treated as the subject. An optional `/analyte` after the subject declares a multi-analyte structure (`conc ~ time | Study + Subject / Analyte`), with the element before the `/` treated as the subject.
 
 ```{r}
 o_conc <- PKNCAconc(d_conc, conc ~ Time | Subject)
@@ -203,7 +205,7 @@ Details: [Half-Life Calculation](https://humanpred.github.io/pknca/articles/v06-
 | `progress` | `TRUE` | Show progress bar during `pk.nca()` |
 | `debug` | `NULL` | Enable internal debug output (not for routine use) |
 
-Override for a single analysis by passing `options` to `PKNCAdata()`. PKNCA has no `update()` method, so to rerun with different settings you build a new `PKNCAdata` object with the new `options` and call `pk.nca()` again:
+Override for a single analysis by passing `options` to `PKNCAdata()`. For rerunning an analysis, `PKNCAresults` objects have an `update()` method, but its fast path is narrow: when only the **concentration or dose data** change, `update(o_nca, data = new_data)` detects which groups' data changed and recalculates just those, keeping every other result. Any other change — different `intervals`, different `options`, or different column definitions — triggers a full recalculation with a warning. So to rerun with different settings, you still build a new `PKNCAdata` object with the new `options` and call `pk.nca()` again:
 
 ```{r}
 o_data_strict <- PKNCAdata(
@@ -237,5 +239,5 @@ ggplot(auclast_df, aes(x = Subject, y = PPORRES)) +
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [exclude_nca_min.hl.r.squared()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [update()](https://humanpred.github.io/pknca/reference/update.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [exclude_nca_min.hl.r.squared()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
 :::
