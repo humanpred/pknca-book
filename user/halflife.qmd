@@ -85,7 +85,7 @@ PKNCA provides one filter enforced **during fitting**, several post-hoc exclusio
 
 > **Important distinction:** Only `min.hl.points` is enforced inside `pk.calc.half.life()` — with too few points, `half.life` is `NA` immediately. `min.hl.r.squared` and `min.span.ratio` are **not** consulted during fitting; they are thresholds for `exclude()` calls after `pk.nca()`.
 
-### 1. Minimum number of points (enforced during fitting)
+### Minimum number of points (enforced during fitting)
 
 ```{r}
 # Default: 3 points minimum — the only filter that makes half.life NA during pk.nca()
@@ -100,7 +100,7 @@ as.data.frame(o_nca_4pts) |>
   arrange(subject)
 ```
 
-### 2. R² threshold (post-hoc exclusion via `exclude()`)
+### R² threshold (post-hoc exclusion via `exclude()`)
 
 `min.hl.r.squared` sets the minimum **unadjusted R²** threshold. It has no effect during `pk.nca()`; use it with `exclude_nca_min.hl.r.squared()` after fitting:
 
@@ -124,7 +124,7 @@ as.data.frame(o_nca_r2_excl) |>
 
 For the stricter **adjusted R²** filter: `exclude_nca_min.hl.adj.r.squared(min)`.
 
-### 3. Span ratio threshold (post-hoc exclusion via `exclude()`)
+### Span ratio threshold (post-hoc exclusion via `exclude()`)
 
 `min.span.ratio` has no effect during `pk.nca()`; use it with `exclude_nca_span.ratio()`:
 
@@ -143,7 +143,7 @@ as.data.frame(o_nca_span_excl) |>
   arrange(subject)
 ```
 
-### 4. Allow / exclude Tmax
+### Allowing or excluding Tmax
 
 By default Tmax is excluded from the λz regression (drug may still be distributing).
 
@@ -165,7 +165,7 @@ as.data.frame(o_nca_tmax) |>
 
 ### Excluding specific points (`exclude_half.life`)
 
-Mark individual observations that should never be included in the λz regression — for example, a suspected outlier or a resurgence peak.
+Mark individual observations that should never be included in the λz regression — for example, a suspected outlier or a secondary peak.
 
 ```{r}
 d_conc_excl <- d_conc |>
@@ -212,9 +212,8 @@ as.data.frame(o_nca_incl) |>
 
 ---
 
-## Tobit regression for BLQ-heavy data
+## Tobit regression for BLQ-heavy data (≥ 0.12.2)
 
-Available in PKNCA ≥ 0.12.2.
 
 ### Why Tobit?
 
@@ -227,7 +226,7 @@ Tobit regression handles this correctly by treating each BLQ observation as a **
 
 ### The key statistical difference from OLS
 
-OLS minimises the sum of squared residuals across observed concentrations. Tobit instead **maximises a likelihood** that has two components:
+OLS minimizes the sum of squared residuals across observed concentrations. Tobit instead **maximizes a likelihood** that has two components:
 
 1. **Observed concentrations** (above LLOQ): contribute via the normal log-likelihood of the log-transformed concentration given the fitted log-linear line.
 2. **BLQ observations**: contribute the cumulative probability that the true (unobserved) concentration falls at or below the LLOQ, i.e. `Φ((log(LLOQ) − predicted) / σ)`, where Φ is the standard normal CDF and σ the residual standard deviation.
@@ -309,16 +308,16 @@ Tobit adds new output columns to the result:
 | Option | Default | Effect |
 |---|---|---|
 | `hl_method` | `"log-linear"` | `"log-linear"` (OLS) or `"tobit"` (censored-likelihood regression) |
-| `tobit_n_points_penalty` | `0` | Penalty per extra terminal point in the log-likelihood; positive values favour shorter windows |
-| `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for the Tobit optimisation |
+| `tobit_n_points_penalty` | `0` | Penalty per extra terminal point in the log-likelihood; positive values favor shorter windows |
+| `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for the Tobit optimization |
 
 See `vignette("v06-half-life-calculation-tobit", package = "PKNCA")` for a detailed simulation comparison between OLS and Tobit estimates.
 
 ---
 
-## lambda.z.corrxy — regression correlation
+## `lambda.z.corrxy` — regression correlation
 
-`lambda.z.corrxy` (available in PKNCA ≥ 0.12.2) returns the Pearson correlation between time and log-concentration for the points used in the λz regression. It is a unitless diagnostic — values close to −1 indicate a strong, clean terminal slope.
+`lambda.z.corrxy` (≥ 0.12.2) returns the Pearson correlation between time and log-concentration for the points used in the λz regression. It is a unitless diagnostic — values close to −1 indicate a strong, clean terminal slope.
 
 ```{r}
 hl_corrxy_interval <- data.frame(
@@ -342,7 +341,7 @@ as.data.frame(o_nca_corrxy) |>
 
 ---
 
-## Visualising the chosen regression window
+## Visualizing the chosen regression window
 
 ```{r}
 # Extract lambda.z.time.first and n.points to annotate the plot

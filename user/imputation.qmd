@@ -30,10 +30,10 @@ per-subject, per-interval basis. The original data frame is never modified.
 Theoph_df <- as.data.frame(Theoph)
 
 # Remove the t = 0 observation to create a missing-baseline scenario
-d_conc_no0 <- Theoph_df |> dplyr::filter(Time > 0)
+d_conc_no0 <- Theoph_df |> filter(Time > 0)
 d_dose      <- Theoph_df |>
-  dplyr::filter(Time == 0) |>
-  dplyr::mutate(amt = Dose * Wt)
+  filter(Time == 0) |>
+  mutate(amt = Dose * Wt)
 
 # Without imputation there is no concentration at the interval start
 o_conc <- PKNCAconc(d_conc_no0, conc ~ Time | Subject)
@@ -43,7 +43,7 @@ o_dose <- PKNCAdose(d_dose, amt ~ Time | Subject)
 ```{r}
 # What does subject 1's profile look like?
 d_conc_no0 |>
-  dplyr::filter(Subject == "1") |>
+  filter(Subject == "1") |>
   head(5)
 ```
 
@@ -85,9 +85,9 @@ o_data_c0$impute   # verify the impute string is stored
 res_c0 <- pk.nca(o_data_c0)
 
 as.data.frame(res_c0) |>
-  dplyr::filter(Subject == "1",
+  filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "cmax", "tmax")) |>
-  dplyr::select(Subject, PPTESTCD, PPORRES)
+  select(Subject, PPTESTCD, PPORRES)
 ```
 
 ### `start_predose` — last pre-dose concentration
@@ -122,8 +122,8 @@ Running all three on subject 1 (whose first sample is at t = 0.25) makes the
 differences concrete:
 
 ```{r}
-d1_conc <- d_conc_no0 |> dplyr::filter(Subject == "1")
-d1_dose <- d_dose |> dplyr::filter(Subject == "1")
+d1_conc <- d_conc_no0 |> filter(Subject == "1")
+d1_dose <- d_dose |> filter(Subject == "1")
 o_conc1 <- PKNCAconc(d1_conc, conc ~ Time | Subject)
 o_dose1 <- PKNCAdose(d1_dose, amt ~ Time | Subject)
 ivl1    <- data.frame(start = 0, end = Inf, auclast = TRUE)
@@ -134,7 +134,7 @@ auclast_with <- function(method) {
   data.frame(impute = method, auclast = res$PPORRES[res$PPTESTCD == "auclast"])
 }
 
-dplyr::bind_rows(auclast_with("start_conc0"),
+bind_rows(auclast_with("start_conc0"),
                  auclast_with("start_predose"),
                  auclast_with("start_cmin"))
 ```
@@ -163,8 +163,8 @@ df_global  <- as.data.frame(res_global)
 
 # auclast is populated for all subjects despite the missing t = 0
 df_global |>
-  dplyr::filter(PPTESTCD == "auclast") |>
-  dplyr::select(Subject, PPORRES) |>
+  filter(PPTESTCD == "auclast") |>
+  select(Subject, PPORRES) |>
   head(6)
 ```
 
@@ -190,8 +190,8 @@ o_data_chain$impute
 res_chain <- pk.nca(o_data_chain)
 
 as.data.frame(res_chain) |>
-  dplyr::filter(Subject == "1", PPTESTCD == "auclast") |>
-  dplyr::select(Subject, PPTESTCD, PPORRES)
+  filter(Subject == "1", PPTESTCD == "auclast") |>
+  select(Subject, PPTESTCD, PPORRES)
 ```
 
 For subject 1 the chained result matches the global `start_conc0` run in the
@@ -230,9 +230,9 @@ o_data_per_interval$intervals[, c("start", "end", "impute")]
 res_per <- pk.nca(o_data_per_interval)
 
 as.data.frame(res_per) |>
-  dplyr::filter(Subject == "1",
+  filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "aucinf.obs", "cmax")) |>
-  dplyr::select(Subject, PPTESTCD, PPORRES)
+  select(Subject, PPTESTCD, PPORRES)
 ```
 
 ---
@@ -247,7 +247,7 @@ that single function on the search path, so the convention is mandatory.
 
 ### Required signature
 
-Modelled after the built-in functions:
+Modeled after the built-in functions:
 
 ```r
 # Minimal required arguments (from args(PKNCA_impute_method_start_conc0)):
@@ -292,8 +292,8 @@ o_data_custom <- PKNCAdata(o_conc, o_dose, impute = "start_mean2")
 res_custom     <- pk.nca(o_data_custom)
 
 as.data.frame(res_custom) |>
-  dplyr::filter(Subject == "1", PPTESTCD == "auclast") |>
-  dplyr::select(Subject, PPTESTCD, PPORRES)
+  filter(Subject == "1", PPTESTCD == "auclast") |>
+  select(Subject, PPTESTCD, PPORRES)
 ```
 
 ---

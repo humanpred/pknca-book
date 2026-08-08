@@ -136,7 +136,7 @@ PKNCA.options("min.hl.points")
 
 ## Sparse PK
 
-Sparse PK (one or two samples per subject, common in preclinical or paediatric studies) is handled via a parallel code path:
+Sparse PK (one or two samples per subject, common in preclinical or pediatric studies) is handled via a parallel code path:
 
 - Set `sparse = TRUE` in `PKNCAconc()`
 - Concentrations are pooled across subjects per timepoint

@@ -1,5 +1,5 @@
 ---
-title: "Interval Selection and Parameter Catalogue"
+title: "Interval Selection and Parameter Catalog"
 ---
 
 ```{r setup, include=FALSE}
@@ -13,7 +13,7 @@ Intervals tell PKNCA *when* to calculate and *what* to calculate. Every calculat
 
 ---
 
-## 1. The Interval Data Frame Structure
+## The interval data frame structure
 
 An interval specification is a plain R `data.frame` with one row per calculation window. Two columns are required:
 
@@ -51,7 +51,7 @@ A parameter cannot be named `start`, `end`, or the same as a grouping variable y
 
 ---
 
-## 2. Group Matching
+## Group matching
 
 PKNCA matches interval rows to concentration data by comparing the **shared column names** between the interval data frame and the grouping columns of the concentration object. Any column that appears in both is used as a matching key.
 
@@ -92,7 +92,7 @@ as.data.frame(o_nca_subj) |>
 
 ---
 
-## 3. Default Intervals via `PKNCAdata()` with No `intervals` Argument
+## Default intervals with no `intervals` argument
 
 When you call `PKNCAdata()` without an explicit `intervals` argument, PKNCA substitutes the built-in default single-dose intervals. These are stored in `PKNCA.options("single.dose.aucs")`:
 
@@ -125,7 +125,7 @@ o_data_default$intervals
 
 ---
 
-## 4. Multiple Intervals per Group
+## Multiple intervals per group
 
 Each row of the interval data frame is applied **independently**. A single subject (or group) can have any number of interval rows, each with its own time window and parameter set. PKNCA applies every matching row and collects the results.
 
@@ -149,7 +149,7 @@ Overlapping intervals are allowed and do not interfere with each other.
 
 ---
 
-## 5. Duration-Based Events
+## Duration-based events
 
 Some sampling designs record a *duration* rather than an instantaneous sample — for example, urine collection periods or IV infusions. PKNCA tracks these via the `duration` argument in `PKNCAconc()` and `PKNCAdose()`.
 
@@ -185,11 +185,11 @@ For IV infusions, `setDuration()` on the dose object sets the infusion duration,
 
 ---
 
-## 6. Full Parameter Catalogue
+## Full parameter catalog
 
 The complete list of calculable parameters is available programmatically via `get.interval.cols()`. Each entry carries a description, the calculation function, unit type, and dependency information.
 
-```{r param-catalogue}
+```{r param-catalog}
 cols <- get.interval.cols()
 
 param_table <- data.frame(
@@ -227,7 +227,7 @@ Parameters fall into broad families:
 
 ---
 
-## 7. Checking Parameter Dependencies with `get.parameter.deps()`
+## Checking parameter dependencies with `get.parameter.deps()`
 
 Some parameters depend on others being computed first. `get.parameter.deps()` returns all parameters that use a given parameter as an input:
 
@@ -240,7 +240,7 @@ This is useful when you plan to modify or exclude a parameter and want to know w
 
 ---
 
-## 8. Validating Custom Intervals with `check.interval.specification()`
+## Validating custom intervals with `check.interval.specification()`
 
 Before passing intervals to `PKNCAdata()`, you can validate them with `check.interval.specification()`. It verifies that all column names are recognized parameters, that `start < end`, and that logical values are used correctly.
 

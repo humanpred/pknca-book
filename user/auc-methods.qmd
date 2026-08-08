@@ -26,7 +26,7 @@ PKNCA offers four families of AUC — AUClast, AUCall, AUCinf (in observed and p
 | Parameter | End point | BLQ treatment | When to use |
 |---|---|---|---|
 | `auclast` | Last measurable concentration | BLQs after last non-BLQ are ignored | Default; most studies |
-| `aucall` | Last measured time point | Post-last-measurable BLQs treated as 0 | When you want to include the BLQ tail |
+| `aucall` | Last measured timepoint | Post-last-measurable BLQs treated as 0 | When you want to include the BLQ tail |
 | `aucinf.obs` | Extrapolated to ∞ (using observed Clast) | — | When half-life is reliable |
 | `aucinf.pred` | Extrapolated to ∞ (using predicted Clast from λz fit) | — | When Clast is noisy |
 | `aucint.*` | Any user-defined time window | — | Partial AUC, bioequivalence |
@@ -125,7 +125,7 @@ as.data.frame(o_nca_all_partial) |>
 
 ## Concentration interpolation at interval boundaries
 
-When a requested interval boundary (e.g., `end = 5`) falls between two observed timepoints, PKNCA interpolates the concentration at that boundary before computing AUC.
+When a requested interval boundary (e.g. `end = 5`) falls between two observed timepoints, PKNCA interpolates the concentration at that boundary before computing AUC.
 
 The interpolation method matches the AUC method:
 - `"linear"` → linear interpolation
@@ -148,7 +148,7 @@ For boundaries that coincide with a dose time, the `.dose` variants above use do
 ## Percent extrapolation (%AUCextrap)
 
 When using `aucinf`, you should check what fraction was extrapolated beyond the last observation.
-A high `aucpext` means the terminal phase was poorly characterised.
+A high `aucpext` means the terminal phase was poorly characterized.
 
 ```{r}
 pext_interval <- data.frame(

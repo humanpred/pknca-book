@@ -11,7 +11,7 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 ## Why dose timing matters for interpolation
 
-Standard concentration interpolation (e.g., `interp.extrap.conc()`) assumes a smooth concentration-time curve with no discontinuities. But when a dose is given **at** or **near** the interpolation target time, the correct value depends critically on whether you are asking about the concentration *before* or *after* that dose event.
+Standard concentration interpolation (e.g. `interp.extrap.conc()`) assumes a smooth concentration-time curve with no discontinuities. But when a dose is given **at** or **near** the interpolation target time, the correct value depends critically on whether you are asking about the concentration *before* or *after* that dose event.
 
 **`interp.extrap.conc.dose()`** is the dose-aware version. It accounts for:
 
@@ -211,7 +211,7 @@ interp.extrap.conc.dose(
 
 PKNCA calls this function automatically whenever an interval boundary (the `start` or `end` of an interval in your intervals data frame) falls at a dose time. You normally never call it directly.
 
-Understanding its behaviour helps diagnose unusual NCA results when dosing and sampling times coincide — for example, when an interval boundary such as `end = tau` coincides with the next dose (the trough sample time).
+Understanding its behavior helps diagnose unusual NCA results when dosing and sampling times coincide — for example, when an interval boundary such as `end = tau` coincides with the next dose (the trough sample time).
 
 ---
 

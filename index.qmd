@@ -21,7 +21,7 @@ This book was built against **PKNCA `r pknca_ver`**. Examples are verified again
 - How high did concentrations get? → **Cmax**
 - How quickly was drug cleared? → **CL**, **Vz**
 
-## Core Workflow
+## Core workflow
 
 ```{mermaid}
 flowchart LR
@@ -72,5 +72,5 @@ For bioavailability, IV data serve as the reference against which extravascular 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**Function reference (pkgdown):** [`PKNCAconc()`](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [`PKNCAdose()`](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [`PKNCAdata()`](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [`pk.nca()`](https://humanpred.github.io/pknca/reference/pk.nca.html) · [`normalize_by_col()`](https://humanpred.github.io/pknca/reference/normalize_by_col.html) · [`normalize()`](https://humanpred.github.io/pknca/reference/normalize.html) · [`pknca_units_table()`](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [`get_halflife_points()`](https://humanpred.github.io/pknca/reference/get_halflife_points.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [normalize()](https://humanpred.github.io/pknca/reference/normalize.html) · [normalize_by_col()](https://humanpred.github.io/pknca/reference/normalize_by_col.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html)
 :::

@@ -158,7 +158,7 @@ as.data.frame(o_nca_c2) |>
 
 ## Example 3: multiple related parameters sharing a dependency
 
-When computing several related quantities (e.g., early AUC, late AUC, and their ratio), register each as its own function. The late-AUC and fraction functions read the already-computed `auclast` dependency.
+When computing several related quantities (e.g. early AUC, late AUC, and their ratio), register each as its own function. The late-AUC and fraction functions read the already-computed `auclast` dependency.
 
 ```{r}
 pk.calc.auc.early <- function(conc, time) {
@@ -313,7 +313,7 @@ summary(pk.nca(PKNCAdata(o_conc, o_dose, intervals = data.frame(
 
 ## Important notes
 
-- **Registration is session-scoped.** Custom parameters registered with `add.interval.col()` persist for the life of your R session. Re-run registration code in each session (e.g., in your analysis script or package).
+- **Registration is session-scoped.** Custom parameters registered with `add.interval.col()` persist for the life of your R session. Re-run registration code in each session (e.g. in your analysis script or package).
 - **`FUN` must be a character string.** Passing a function object causes an error.
 - **`depends` controls evaluation order.** List all parameters your function reads. PKNCA resolves the dependency graph and ensures they are computed before your function is called.
 - **Functions must be in scope** when `pk.nca()` runs. Define them in the global environment or in a package loaded before calling `pk.nca()`.

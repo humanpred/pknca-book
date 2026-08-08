@@ -254,7 +254,7 @@ bind_rows(
   select(version, PPTESTCD, PPORRES)
 ```
 
-### Clearance and Volume
+### Clearance and volume
 
 For IV dosing, clearance and volume are obtained directly (no bioavailability factor involved), unlike the apparent CL/F and Vz/F of extravascular routes.
 
@@ -292,7 +292,7 @@ as.data.frame(o_nca_cl) |>
   arrange(Subject, PPTESTCD)
 ```
 
-### Mean Residence Time (MRT)
+### Mean residence time (MRT)
 
 MRT quantifies the average time a drug molecule spends in the body.
 
@@ -484,7 +484,7 @@ $$\text{MRT}_{IV} = \frac{\text{AUMC}}{\text{AUC}} - \frac{\text{duration}}{2}$$
 
 For an IV bolus (`duration = 0`) the correction is zero. For a 0.5 h infusion, the correction is 0.25 h. When early samples fall within the infusion window the correction may differ slightly from the nominal `duration/2` due to the way PKNCA handles within-infusion timepoints in the AUMC calculation.
 
-Use `mrt.iv.obs` (extrapolated to ∞) when the terminal phase is well characterised and `mrt.iv.last` (to last measurable) otherwise.
+Use `mrt.iv.obs` (extrapolated to ∞) when the terminal phase is well characterized and `mrt.iv.last` (to last measurable) otherwise.
 
 ---
 
@@ -540,7 +540,7 @@ as.data.frame(o_nca_u) |>
 
 ## Excluding observations
 
-Mark individual observations to exclude from calculations (e.g., suspected sampling errors):
+Mark individual observations to exclude from calculations (e.g. suspected sampling errors):
 
 ```{r}
 d_conc_with_excl <- d_conc |>

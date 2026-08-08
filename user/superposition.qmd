@@ -61,7 +61,7 @@ head(ss_profile, 12)
 
 ---
 
-## Visualising the approach to steady state
+## Visualizing the approach to steady state
 
 With a finite `n.tau`, `superposition()` returns the concentration profile over the dosing interval after that many doses; with `n.tau = Inf` it accumulates doses until the profile converges to steady state (within `steady.state.tol`). Overlaying the profiles after 1, 2, and 3 doses on the converged profile makes the approach to steady state visible.
 
@@ -175,7 +175,7 @@ cat("Steady-state Cmax:", round(cmax_ss, 2), "mg/L\n")
 | `auc.type` | No (default `"AUCinf"`) | How to extrapolate the single-dose tail: `"AUCinf"`, `"AUClast"`, or `"AUCall"` |
 | `additional.times` | No | Extra timepoints to include in the output |
 
-> **Limitation:** Superposition assumes linear PK. It should not be used for drugs with non-linear kinetics (e.g., Michaelis-Menten elimination, time-varying clearance, or saturable protein binding).
+> **Limitation:** Superposition assumes linear PK. It should not be used for drugs with non-linear kinetics (e.g. Michaelis-Menten elimination, time-varying clearance, or saturable protein binding).
 
 
 ---

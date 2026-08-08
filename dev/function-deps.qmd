@@ -28,8 +28,8 @@ edges <- lapply(names(cols), function(param) {
 # All unique nodes
 all_nodes <- unique(c(edges$from, edges$to, names(cols)))
 
-# Assign category for colouring
-categorise <- function(name) {
+# Assign category for coloring
+categorize <- function(name) {
   case_when(
     grepl("^auc",       name) ~ "AUC",
     grepl("^lambda|half\\.life|r\\.squared", name) ~ "Half-life / λz",
@@ -42,7 +42,7 @@ categorise <- function(name) {
   )
 }
 
-category_colours <- c(
+category_colors <- c(
   "AUC"                    = "#4e79a7",
   "Half-life / λz"         = "#f28e2b",
   "CL / Volume"            = "#e15759",
@@ -56,7 +56,7 @@ category_colours <- c(
 nodes <- data.frame(
   id    = all_nodes,
   label = all_nodes,
-  group = categorise(all_nodes),
+  group = categorize(all_nodes),
   stringsAsFactors = FALSE
 )
 
@@ -78,9 +78,9 @@ graph <- visNetwork(nodes, edges,
   visLayout(randomSeed = 42)
 
 # Register each category as a visNetwork group: nodes and legend swatches both
-# take their colour from the group definition, so they always match
-for (grp in names(category_colours)) {
-  graph <- visGroups(graph, groupname = grp, color = category_colours[[grp]])
+# take their color from the group definition, so they always match
+for (grp in names(category_colors)) {
+  graph <- visGroups(graph, groupname = grp, color = category_colors[[grp]])
 }
 graph
 ```
@@ -90,7 +90,7 @@ graph
 - Click a parameter node to highlight its immediate dependencies and dependents
 - The "Select parameter" dropdown jumps to a specific node
 - Drag nodes to rearrange; scroll to zoom
-- Colours indicate parameter family (see legend)
+- Colors indicate parameter family (see legend)
 
 ## Dependency table
 

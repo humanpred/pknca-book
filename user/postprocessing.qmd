@@ -81,7 +81,7 @@ df |>
 `exclude()` takes your results object plus a `reason` string and either a logical `mask` or a rule `FUN`. A manual `mask` excludes exactly the rows you flag — it does not propagate to other parameters. Rule-based exclusion (next section) does propagate: each rule excludes its affected parameters and the parameters that depend on them.
 
 ```{r}
-# Exclude subject 3's half-life manually (e.g., failed QC review)
+# Exclude subject 3's half-life manually (e.g. failed QC review)
 o_nca_excl <- exclude(
   o_nca,
   reason = "half-life failed manual QC",
@@ -207,7 +207,7 @@ as.data.frame(o_nca_dn) |>
 
 ### Custom normalization with `normalize()` (≥ 0.12.2)
 
-For normalization by columns other than dose (e.g., body weight, body surface area), PKNCA 0.12.2 adds `normalize()`. You supply a `norm_table` data frame containing the grouping columns, a `normalization` value, and a `unit` for each group:
+For normalization by columns other than dose (e.g. body weight, body surface area), PKNCA 0.12.2 adds `normalize()`. You supply a `norm_table` data frame containing the grouping columns, a `normalization` value, and a `unit` for each group:
 
 ```{r}
 # Normalize AUClast and Cmax by body weight
@@ -232,7 +232,7 @@ df_bw_norm |>
 
 > `normalize()` returns **only** the normalized rows, under new parameter names — `auclast` becomes `auclast.bw`, `cmax` becomes `cmax.bw`. To keep both original and normalized values, bind the normalized rows onto the original results: `bind_rows(df_results, df_bw_norm)`.
 
-`normalize_by_col()` is the low-level variant that pulls normalization values from a column already present in the `PKNCAconc` data frame, rather than from a separate table.
+`normalize_by_col()` (≥ 0.12.2) is the low-level variant that pulls normalization values from a column already present in the `PKNCAconc` data frame, rather than from a separate table.
 
 ---
 

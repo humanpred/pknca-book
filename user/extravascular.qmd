@@ -137,7 +137,7 @@ identical(
 )
 ```
 
-The option has no effect here because no Theoph subject reaches its maximum concentration at two timepoints — `first.tmax` only matters when the maximum is an exact tie. Tie-breaking for Tmin is controlled by the `first.tmin` option (PKNCA ≥ 0.12.2, default `TRUE` = return first occurrence).
+The option has no effect here because no Theoph subject reaches its maximum concentration at two timepoints — `first.tmax` only matters when the maximum is an exact tie. Tie-breaking for Tmin is controlled by the `first.tmin` option (≥ 0.12.2; default `TRUE` = return first occurrence).
 
 ### AUC variants
 
@@ -478,7 +478,7 @@ as.data.frame(o_nca_ss) |>
 
 ## Excluding observations
 
-Mark individual time points to exclude (e.g., vomiting within 2× median Tmax, suspected contamination):
+Mark individual timepoints to exclude (e.g. vomiting within 2× median Tmax, suspected contamination):
 
 ```{r}
 d_conc_excl <- d_conc |>
@@ -568,7 +568,7 @@ On Theoph the per-phase rule reproduces the default results (the predose zeros s
 
 ## AUC integration methods
 
-The default integration method is **lin up / log down** (linear interpolation on the ascending phase, log-linear on the descending phase). The alternatives, `"linear"` and `"lin-log"`, are selected per-analysis with the `auc.method` option. See the [AUC chapter](auc-methods.qmd) for how each method computes the trapezoids and when to prefer which.
+The default integration method is **lin up/log down** (linear interpolation on the ascending phase, log-linear on the descending phase). The alternatives, `"linear"` and `"lin-log"`, are selected per-analysis with the `auc.method` option. See the [AUC chapter](auc-methods.qmd) for how each method computes the trapezoids and when to prefer which.
 
 ```{r}
 # Switch to the linear trapezoidal method

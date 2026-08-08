@@ -56,7 +56,7 @@ For each item, classify it:
 | New NCA parameter | new `add.interval.col()` entry |
 | New option | new key in `PKNCA.options()` |
 | New function | e.g. `normalize()` in 0.12.2 |
-| Changed behaviour | existing function works differently |
+| Changed behavior | existing function works differently |
 | Bug fix | may invalidate an existing example |
 
 Cross-check the parameter count and options list:
@@ -113,7 +113,7 @@ as.data.frame(o_nca) |>
 
 | Changed item | Page(s) to update |
 |---|---|
-| New NCA parameter | `user/intervals.qmd` (catalogue + count) + thematic page |
+| New NCA parameter | `user/intervals.qmd` (catalog + count) + thematic page |
 | New option | `user/workflow.qmd` (options table) |
 | New post-processing function | `user/postprocessing.qmd` |
 | New sparse parameter | `user/sparse.qmd` |
@@ -192,7 +192,7 @@ Template:
 [ ] Update index.qmd "What's new" section
 [ ] Update README.md version highlights
 [ ] Update user/workflow.qmd options table (if options changed)
-[ ] Update user/intervals.qmd parameter count and catalogue
+[ ] Update user/intervals.qmd parameter count and catalog
 [ ] Update thematic pages (auc-methods, halflife, sparse, urine, etc.)
 [ ] Verify all packages are listed in .github/workflows/book.yml — audit at once with:
     grep -rh "^library(" user/ dev/ index.qmd | sort -u
@@ -212,7 +212,7 @@ _quarto.yml          # book config (title, author, chapters)
 index.qmd            # introduction + What's new
 user/                # 19 User Guide chapters
   workflow.qmd       # PKNCAconc → PKNCAdose → PKNCAdata → pk.nca; all options
-  intervals.qmd      # interval data frame; full parameter catalogue
+  intervals.qmd      # interval data frame; full parameter catalog
   auc-methods.qmd    # AUC types; integration methods; AUMC; aucabove; time_above
   halflife.qmd       # λz regression; Tobit; quality filters; lambda.z.corrxy
   extravascular.qmd  # oral/SC; BLQ; tmin; lag time

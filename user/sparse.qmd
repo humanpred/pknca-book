@@ -16,7 +16,7 @@ In **dense PK**, each subject contributes a full concentration-time profile (mul
 Sparse sampling is common in:
 
 - **Preclinical toxicokinetic studies** — serial sacrifice designs where each animal is sampled at only one timepoint
-- **Paediatric or special population studies** — where blood volume limits the number of draws per patient
+- **Pediatric or special population studies** — where blood volume limits the number of draws per patient
 - **Large observational studies** — with opportunistic sampling
 
 PKNCA handles sparse PK by computing a **mean concentration-time profile** across all subjects at each timepoint, then running NCA on that mean profile, along with a standard error estimate from the Nedelman & Jia (1998) method.
@@ -63,7 +63,7 @@ ggplot(d_sparse, aes(x = time, y = conc)) +
   stat_summary(fun = mean, geom = "line", linewidth = 1, colour = "black") +
   stat_summary(fun = mean, geom = "point", size = 4, colour = "black", shape = 18) +
   labs(
-    title = "Sparse PK — individual samples (coloured) and mean profile (black)",
+    title = "Sparse PK — individual samples (colored) and mean profile (black)",
     x = "Time (h)", y = "Concentration (mg/L)"
   ) +
   theme_minimal()

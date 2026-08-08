@@ -187,7 +187,7 @@ as.data.frame(o_nca_ae) |>
 
 ---
 
-## New urine parameters in PKNCA ≥ 0.12.2
+## New urine parameters (≥ 0.12.2)
 
 ### volpk — total collection volume
 

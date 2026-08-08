@@ -25,7 +25,7 @@ suppressMessages(o_nca <- pk.nca(d_data))
 
 ---
 
-## 1. CDISC PP Domain Alignment
+## CDISC PP domain alignment
 
 The CDISC PP domain stores one parameter value per row, with the parameter code in `PPTESTCD` and the original result in `PPORRES`. When a units table is provided, PKNCA additionally fills its own standardized-result column, `PPSTRES`; the corresponding CDISC SDTM variables are `PPSTRESC` (character) and `PPSTRESN` (numeric). PKNCA's `as.data.frame()` output follows exactly this long-format convention.
 
@@ -53,7 +53,7 @@ head(df, 10)
 
 ---
 
-## 2. Grouping Columns as CDISC Identifiers
+## Grouping columns as CDISC identifiers
 
 Whatever grouping structure you define in `PKNCAconc()` — subject ID, analyte, treatment, period — those column names carry through unchanged into `as.data.frame(o_nca)`. They become the basis for `USUBJID`, `PPCAT` (analyte/treatment), and other PP domain identifiers.
 
@@ -78,7 +78,7 @@ All grouping variables will appear as columns in the long-format result, ready t
 
 ---
 
-## 3. Extracting Results for Submission
+## Extracting results for submission
 
 `as.data.frame(o_nca)` returns the individual (subject-level) long-format table. This is the primary output for PP domain construction. The `PPTESTCD` and `PPORRES` columns are already CDISC-named, so no renaming is needed:
 
@@ -96,7 +96,7 @@ The result is in tidy long format: one row per subject per parameter per interva
 
 ---
 
-## 4. The `exclude` Column
+## The `exclude` column
 
 The `exclude` column records whether a result was flagged for exclusion and why. When `exclude` is `NA`, the result is valid. When it is a non-`NA` character string, it contains a human-readable exclusion reason.
 
@@ -108,7 +108,7 @@ table(is.na(df$exclude))
 df |> filter(!is.na(exclude)) |> head()
 ```
 
-Exclusions are set programmatically via the `exclude_nca_*` family of functions (e.g., `exclude_nca_max.aucinf.pext()`, `exclude_nca_min.hl.r.squared()`), or manually via `exclude()`. The rule functions supply their own exclusion reason text (e.g., `exclude_nca_min.hl.r.squared(0.9)` records `r.squared < 0.9`), so no `reason=` argument is needed. For regulatory submissions, include all rows in the PP domain — both included and excluded. Exclusion is typically represented via `PPSTAT`/`PPREASND` (status and reason not done) or a supplemental qualifier; PKNCA's `exclude` column provides the source text for whichever convention your submission uses.
+Exclusions are set programmatically via the `exclude_nca_*` family of functions (e.g. `exclude_nca_max.aucinf.pext()`, `exclude_nca_min.hl.r.squared()`), or manually via `exclude()`. The rule functions supply their own exclusion reason text (e.g. `exclude_nca_min.hl.r.squared(0.9)` records `r.squared < 0.9`), so no `reason=` argument is needed. For regulatory submissions, include all rows in the PP domain — both included and excluded. Exclusion is typically represented via `PPSTAT`/`PPREASND` (status and reason not done) or a supplemental qualifier; PKNCA's `exclude` column provides the source text for whichever convention your submission uses.
 
 ```{r exclude-nca-example}
 # Apply standard exclusion rules and inspect excluded rows
@@ -122,7 +122,7 @@ df_excl |> filter(!is.na(exclude)) |> select(Subject, PPTESTCD, PPORRES, exclude
 
 ---
 
-## 5. Summary Table for Reports
+## Summary table for reports
 
 `summary(o_nca)` returns a wide-format table suitable for clinical study reports. Each row is a parameter and each column is a summary statistic (geometric mean, CV%, range, etc.):
 
@@ -134,7 +134,7 @@ The summary uses the `PKNCA.set.summary()` configuration for each parameter type
 
 ---
 
-## 6. Reproducibility: Pinning Options and Environment
+## Reproducibility: pinning options and environment
 
 For regulatory analyses, the PKNCA option set used during the run must be documented. `PKNCA.options()` with no arguments returns the full current option set:
 

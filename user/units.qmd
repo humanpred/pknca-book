@@ -18,8 +18,8 @@ Tabulation Model) PP (PK Parameters) domain:
 | Column | Meaning |
 |--------|---------|
 | `PPORRESU` | Original reporting unit (the unit the result is expressed in) |
-| `PPSTRESU` | Standardised unit (populated when a conversion is requested) |
-| `PPSTRES` | Result expressed in the standardised unit |
+| `PPSTRESU` | Standardized unit (populated when a conversion is requested) |
+| `PPSTRES` | Result expressed in the standardized unit |
 
 This makes the output submission-ready and prevents silent unit mismatches when
 combining results from multiple studies or analytes.
@@ -59,8 +59,8 @@ The unit-related arguments are:
 ```{r}
 Theoph_df <- as.data.frame(Theoph)
 d_dose <- Theoph_df |>
-  dplyr::filter(Time == 0) |>
-  dplyr::mutate(amt = Dose * Wt)
+  filter(Time == 0) |>
+  mutate(amt = Dose * Wt)
 
 o_conc <- PKNCAconc(Theoph_df, conc ~ Time | Subject,
                     concu = "mg/L", timeu = "h")
@@ -73,7 +73,7 @@ o_dose <- PKNCAdose(d_dose, amt ~ Time | Subject,
 
 ```{r}
 Theoph_units <- Theoph_df |>
-  dplyr::mutate(conc_unit = "mg/L", time_unit = "h")
+  mutate(conc_unit = "mg/L", time_unit = "h")
 
 o_conc_col <- PKNCAconc(Theoph_units, conc ~ Time | Subject,
                         concu = "conc_unit", timeu = "time_unit")
@@ -90,14 +90,14 @@ In PKNCA ≥ 0.12.2, `pknca_units_table()` is an **S3 generic**. The most useful
 
 ```{r}
 # Units already embedded in the data objects
-o_conc_u <- PKNCAconc(as.data.frame(Theoph) |> dplyr::rename(time=Time, subject=Subject),
+o_conc_u <- PKNCAconc(as.data.frame(Theoph) |> rename(time=Time, subject=Subject),
                        conc ~ time | subject, concu = "mg/L", timeu = "h")
 o_dose_u <- PKNCAdose(
   as.data.frame(Theoph) |>
-    dplyr::group_by(Subject) |>
-    dplyr::summarise(dose = Dose[1]*Wt[1], .groups="drop") |>
-    dplyr::rename(subject=Subject) |>
-    dplyr::mutate(time = 0),
+    group_by(Subject) |>
+    summarise(dose = Dose[1]*Wt[1], .groups="drop") |>
+    rename(subject=Subject) |>
+    mutate(time = 0),
   dose ~ time | subject, route = "extravascular",
   doseu = "mg", timeu = "h"
 )
@@ -169,13 +169,13 @@ df <- as.data.frame(res)
 stopifnot("PPORRESU" %in% names(df))  # unit column present on every row
 
 df |>
-  dplyr::filter(Subject == "1",
+  filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "cmax", "tmax", "cl.obs")) |>
-  dplyr::select(PPTESTCD, PPORRES, PPORRESU)
+  select(PPTESTCD, PPORRES, PPORRESU)
 ```
 
 Whenever a units table is in effect, `PPORRESU` is populated for every result
-row. The standardised-unit columns `PPSTRESU` and `PPSTRES` appear only when
+row. The standardized-unit columns `PPSTRESU` and `PPSTRES` appear only when
 preferred or custom conversions are requested, as the next sections show.
 
 ---
@@ -209,9 +209,9 @@ o_data_pref <- PKNCAdata(o_conc2, o_dose2, units = u_pref)
 res_pref <- pk.nca(o_data_pref)
 
 as.data.frame(res_pref) |>
-  dplyr::filter(Subject == "1",
+  filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "cmax", "tmax")) |>
-  dplyr::select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
+  select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
 ```
 
 `PPORRES`/`PPORRESU` hold the original value and unit; `PPSTRES`/`PPSTRESU`
@@ -254,9 +254,9 @@ o_data_custom <- PKNCAdata(o_conc2, o_dose2, units = u_custom)
 res_custom    <- pk.nca(o_data_custom)
 
 as.data.frame(res_custom) |>
-  dplyr::filter(Subject == "1",
+  filter(Subject == "1",
                 PPTESTCD %in% c("auclast", "cmax")) |>
-  dplyr::select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
+  select(PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU)
 ```
 
 ---
