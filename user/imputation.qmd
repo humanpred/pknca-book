@@ -63,7 +63,7 @@ args(PKNCA_impute_method_start_cmin)
 
 | Name | String to use | What it does |
 |------|--------------|--------------|
-| `PKNCA_impute_method_start_conc0` | `"start_conc0"` | Inserts — or replaces an existing start-time value with — a concentration of 0 at the interval start time |
+| `PKNCA_impute_method_start_conc0` | `"start_conc0"` | Forces a concentration of 0 at the interval start, inserting it or replacing an existing value (intentional — see the chaining note) |
 | `PKNCA_impute_method_start_predose` | `"start_predose"` | Uses the last observed concentration before the interval start |
 | `PKNCA_impute_method_start_cmin` | `"start_cmin"` | Uses the minimum concentration observed within the interval |
 
@@ -186,11 +186,12 @@ to the interval start, `start_conc0` then replaces with 0. The intuitive
 reading "try pre-dose first, fall back to zero" describes the reverse of how
 the chain behaves.
 
-> **Upstream caveat:** the package's own [Data Imputation vignette](https://humanpred.github.io/pknca/articles/v08-data-imputation.html)
-> recommends this very chain ("first move a predose concentration up to the
-> time of dosing and then set time 0 to concentration 0"). As of PKNCA 0.12.x
-> the second step overwrites the first, so the chain reduces to `start_conc0`
-> alone.
+> **By design:** the overwrite is intentional (see PKNCA issue 578) — the
+> point of `start_conc0` is to *force* a zero at the interval start, which
+> includes removing a nonzero predose concentration that `start_predose`
+> carried there. Use `start_predose` alone to keep a predose value,
+> `start_conc0` to force a zero, and a custom method for
+> "predose if present, otherwise zero".
 
 ```{r}
 # The methods run in sequence; start_conc0 (last) always wins at t = start
@@ -351,7 +352,7 @@ The vignette's [advanced section](https://humanpred.github.io/pknca/articles/v08
 | Single-dose study, no pre-dose drug expected | `start_conc0` |
 | Multiple-dose or steady-state, trough sample collected | `start_predose` |
 | Endogenous analyte or metabolite, zero implausible | `start_cmin` |
-| Pre-dose value if present, otherwise zero | Not expressible by chaining — `"start_predose,start_conc0"` collapses to `"start_conc0"`; write a custom method |
+| Pre-dose value if present, otherwise zero | Not expressible by chaining — `"start_predose,start_conc0"` collapses to `"start_conc0"` by design; write a custom method |
 | Non-standard logic required | Custom `PKNCA_impute_method_*` function |
 
 ---
