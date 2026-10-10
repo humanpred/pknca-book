@@ -48,7 +48,7 @@ open _book/index.html
 | [Imputation](user/imputation.qmd) | start_conc0; start_predose; start_predose_conc0; start_cmin; end_conc_drop; chaining order; custom methods |
 | [Dose-aware interpolation](user/dose-aware-interpolation.qmd) | interp.extrap.conc.dose; dose-aware aucint rules |
 | [Custom parameters](user/custom-parameters.qmd) | add.interval.col(); FUN_sparse; pknca_ref(); registering new NCA parameters |
-| [Utility functions](user/utilities.qmd) | geomean; geocv; clean.conc.*; assert_*; get.parameter.deps(); route helpers |
+| [Utility functions](user/utilities.qmd) | clean.conc.*; interp.extrap.conc(); check.interval.specification(); get.parameter.deps(); route helpers; assert_* |
 | [Regulatory & CDISC](user/regulatory.qmd) | CDISC output; pknca_cdisc_codes(); PPANMETH; PPGRPID; exclusion tracking; summary() for CSR tables |
 | [Validation & testing](user/validation.qmd) | testthat suite; version pinning; manual AUClast spot-check; PPANMETH |
 

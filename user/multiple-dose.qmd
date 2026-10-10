@@ -45,10 +45,14 @@ C_ss <- function(t, ka, ke, V, dose, tau) {
 timepoints <- c(0, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 10, 12)
 n_subjects <- 4
 
+# ~20% log-normal inter-individual variability (IIV) on the elimination rate
+# constant: one ke_i per subject
+d_ke_ss <- data.frame(Subject = factor(1:n_subjects),
+                      ke_i    = ke * exp(rnorm(n_subjects, 0, 0.2)))
+
 d_conc_ss <- expand.grid(Subject = factor(1:n_subjects), time = timepoints) |>
+  left_join(d_ke_ss, by = "Subject") |>
   mutate(
-    # Add ~20% log-normal inter-individual variability (IIV) on the elimination rate constant (ke)
-    ke_i  = ke * exp(rnorm(n(), 0, 0.2)),
     conc  = mapply(C_ss, time, ka, ke_i, V, dose, tau) + rnorm(n(), 0, 0.05),
     conc  = pmax(conc, 0)
   ) |>
@@ -57,8 +61,7 @@ d_conc_ss <- expand.grid(Subject = factor(1:n_subjects), time = timepoints) |>
 d_dose_ss <- data.frame(
   Subject = factor(1:n_subjects),
   dose    = dose,
-  time    = 0,
-  route   = "extravascular"
+  time    = 0
 )
 
 ggplot(d_conc_ss, aes(x = time, y = conc, group = Subject, colour = Subject)) +
@@ -110,7 +113,7 @@ as.data.frame(o_nca_ss) |>
 ### Cstart and Ctrough
 
 `cstart` is the concentration at the **start** of the interval (time = `start`). For steady state this equals the pre-dose trough.
-`ctrough` is the concentration at the **end** of the interval (time = `end`). For steady state, `cstart` ≈ `ctrough`.
+`ctrough` is the concentration at the **end** of the interval (time = `end`). At steady state the two are equal apart from measurement error; here they differ only by the simulated residual noise.
 
 ```{r}
 as.data.frame(o_nca_ss) |>
@@ -293,7 +296,7 @@ as.data.frame(o_nca_md) |>
   arrange(Subject)
 ```
 
-For the one-compartment model used in the simulation, MRT is 1/ke + 1/ka ≈ 13.2 h at the typical ke of 0.08/h. The individual estimates spread around that value because ke varies between subjects.
+For the one-compartment model used in the simulation, MRT is 1/ke + 1/ka ≈ 13.2 h at the typical ke of 0.08/h. The individual estimates (10.1 to 14.9 h) spread around that value because each subject has its own ke.
 
 If τ can be neither given nor detected, these parameters are `NA` with a `pknca_warning_tau_undetermined` warning. PKNCA does not fall back to the single-dose equation. For IV infusions, use `mrt.ivmd.obs`, `mrt.ivmd.pred`, `vss.ivmd.obs`, and `vss.ivmd.pred` (≥ 0.13.0). They subtract half the infusion duration, without which MRT is high by `duration/2` and Vss by CL × `duration/2`.
 

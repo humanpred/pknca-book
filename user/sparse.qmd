@@ -54,7 +54,7 @@ ggplot(d_serial, aes(x = time, y = conc)) +
   stat_summary(fun = mean, geom = "line", linewidth = 1, colour = "black") +
   stat_summary(fun = mean, geom = "point", size = 4, colour = "black", shape = 18) +
   labs(
-    title = "Serial sacrifice: individual samples (grey) and mean profile (black)",
+    title = "Serial sacrifice: individual samples (gray) and mean profile (black)",
     x = "Time (h)", y = "Concentration (mg/L)"
   ) +
   theme_minimal()
@@ -122,7 +122,7 @@ See [Interval Selection and Parameter Catalog](intervals.qmd) for interval speci
 
 ## The mean profile and BLQ samples
 
-The mean profile is the arithmetic mean of the samples at each timepoint, with one rule for samples below the limit of quantification (BLQ, coded as 0): if **strictly more than 50%** of the samples at a timepoint are BLQ, the mean at that timepoint is set to 0. At exactly 50% BLQ, the mean is calculated normally, with the BLQ values as 0. This method (`"arithmetic mean, <=50% BLQ"`) is not a user-facing option.
+The mean profile is the arithmetic mean of the samples at each timepoint, with one rule for samples below the limit of quantification (BLQ, coded as 0): if **strictly more than 50%** of the samples at a timepoint are BLQ, the mean at that timepoint is set to 0. At exactly 50% BLQ, the mean is calculated normally, with the BLQ values as 0. This method (`"arithmetic mean, <=50% BLQ"`) is not an option of `pk.nca()` or `PKNCA.options()`; `sparse_mean()` takes it as its `sparse_mean_method` argument.
 
 To see the rule, censor the serial data at an LLOQ of 0.06 mg/L, which makes 3 of the 4 samples at 24 h BLQ. `sparse_mean()` calculates the mean profile from an `as_sparse_pk()` object:
 

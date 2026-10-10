@@ -92,9 +92,9 @@ as.data.frame(o_nca) |>
 | `clast.pred` | Predicted concentration at `tlast` (from λz fit) |
 | `count_conc` | Number of non-missing concentrations (including BLQ) |
 | `count_conc_measured` | Number of concentrations above LOQ (non-BLQ) |
+| `lambda.z.time.last` | Last timepoint used in the λz regression |
 
 Both counts are taken after imputation and do not distinguish imputed from measured values: an imputed zero (`start_conc0`) adds to `count_conc` but not to `count_conc_measured`, while a concentration carried to the start (`start_predose`) adds to both. To count only measured samples, calculate the counts in an interval without imputation.
-| `lambda.z.time.last` | Last timepoint used in the λz regression |
 
 ```{r}
 lm_interval <- data.frame(
@@ -230,7 +230,7 @@ For extravascular dosing the fraction absorbed (F) is unknown, so clearance and 
 | `cl.obs` | Apparent clearance = Dose / AUCinf.obs (this is CL/F) |
 | `vz.obs` | Apparent volume = CL.obs / λz (this is Vz/F) |
 
-Each clearance and volume is available for every AUC basis, named by its suffix: `.obs` and `.pred` (AUCinf with observed or predicted Clast), `.last` (AUClast), `.all` (AUCall), and `.int.last`, `.int.all`, `.int.inf.obs`, `.int.inf.pred` (the interval AUCs, `aucint.*`). PKNCA 0.13.0 completed these families for `cl.*`, `vz.*`, `vss.*`, `mrt.*`, and `kel.*` (for example `cl.all`, `vz.last`, `vss.int.last`, `mrt.int.inf.obs`); the full list is printed at the end of this chapter.
+Each clearance and volume is available for every AUC basis, named by its suffix: `.obs` and `.pred` (AUCinf with observed or predicted Clast), `.last` (AUClast), `.all` (AUCall), and `.int.last`, `.int.all`, `.int.inf.obs`, `.int.inf.pred` (the interval AUCs, `aucint.*`). PKNCA 0.13.0 completed these families for `cl.*`, `vz.*`, `vss.*`, `mrt.*`, and `kel.*` (for example `vz.last`, `vss.int.last`, `mrt.int.inf.obs`); the full list is printed at the end of this chapter.
 
 ### Lag time (tlag)
 

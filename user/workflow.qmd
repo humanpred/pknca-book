@@ -222,7 +222,7 @@ Details: the [Half-Life chapter](halflife.qmd), [Half-Life Calculation](https://
 | `auto.interval.method` | `"builder"` | Where the parameters of automatically generated intervals come from: `"builder"` asks `pknca_interval_table()` for the parameters and imputation that suit each interval; `"legacy"` uses the pre-0.13.0 lists (`single.dose.aucs` for a single dose; AUClast, Cmax, and Tmax for each dosing interval) (≥ 0.13.0) |
 | `auto.interval.tolerance` | `0.05` | How far before an interval boundary a sample may be drawn and still count as the sample at that boundary, as a fraction of the interval length (a trough at 167.5 h still ends an interval nominally ending at 168 h) (≥ 0.13.0) |
 | `single.dose.aucs` | (data frame) | Intervals for single-dose data, used only with `auto.interval.method = "legacy"` |
-| `tau.choices` | `NA` | Candidate dosing intervals (τ) considered when detecting the dosing interval of multiple-dose data; `NA` considers any interval |
+| `tau.choices` | `NA` | Nominal dosing intervals (τ) that detected dosing intervals are matched to. `NA` uses the built-in set from every 4 hours to every 12 weeks (Q4H, QID, TID, BID, QD, ..., Q12W); a numeric vector replaces it. An interval that matches none is reported as found in the dose times, with a `pknca_warning_tau_not_nominal` warning |
 
 The [Automatic Intervals and Dosing Regimens chapter](auto-intervals.qmd) shows these options at work.
 

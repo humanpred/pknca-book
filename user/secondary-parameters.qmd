@@ -545,7 +545,7 @@ as.data.frame(o_nca_u) |>
   as.data.frame()
 ```
 
-There is no unit argument for the collection volume: `amountu` is the unit of the amount excreted (`conc × vol`), so the volume must be recorded in units that make that product an amount in `amountu`. Here the volumes are in litres, and mg/L × L = mg.
+There is no unit argument for the collection volume: `amountu` is the unit of the amount excreted (`conc × vol`), so the volume must be recorded in units that make that product an amount in `amountu`. Here the volumes are in liters, and mg/L × L = mg.
 
 `clr.last` is reported in `mg/(hr*ng/mL)`: the `mg` from the urine collection that supplied the amount and the `hr*ng/mL` from the plasma profile that supplied the AUC. Its value, $26.65 / 47748 = 0.000558$, is the same number as before in different units; no value is converted. The units table that `PKNCAdata()` builds gains a `<group>_ref` column and one row per pair of groups to make this possible:
 

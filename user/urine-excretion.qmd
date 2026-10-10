@@ -98,7 +98,7 @@ Requesting a parameter that needs a sample volume (`ae`, `fe`, `volpk`, `clr.*`)
 
 ## Renal clearance in one `pk.nca()` call (≥ 0.13.0)
 
-Put the plasma and urine concentrations in one data frame, distinguished by a grouping column (here `specimen`), and give the urine volume through `volume`. Plasma rows have no volume. The volume is converted to litres so that `conc × volume` (mcg/mL × L = mg) is in the same mass unit as the dose and the plasma AUC (mg·h/L), which makes `fe` a fraction and `clr.*` come out in L/h:
+Put the plasma and urine concentrations in one data frame, distinguished by a grouping column (here `specimen`), and give the urine volume through `volume`. Plasma rows have no volume. The volume is converted to liters so that `conc × volume` (mcg/mL × L = mg) is in the same mass unit as the dose and the plasma AUC (mg·h/L), which makes `fe` a fraction and `clr.*` come out in L/h:
 
 ```{r}
 d_conc_all <- bind_rows(
@@ -195,7 +195,7 @@ as.data.frame(o_nca_ae) |>
   arrange(Subject)
 ```
 
-Note the units: `ae` here is in mcg (urine concentration in mcg/mL × volume in mL), so ~90,000 mcg matches the ~90 mg of the combined analysis above, where the volume was in litres. Units can be declared with the unit arguments of `PKNCAconc()`; there is no separate volume unit, so `amountu` is the unit of `conc × volume`.
+Note the units: `ae` here is in mcg (urine concentration in mcg/mL × volume in mL), so ~90,000 mcg matches the ~90 mg of the combined analysis above, where the volume was in liters. Units can be declared with the unit arguments of `PKNCAconc()`; there is no separate volume unit, so `amountu` is the unit of `conc × volume`.
 
 ---
 

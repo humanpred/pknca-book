@@ -63,7 +63,7 @@ flowchart TD
     A2 --> A3["Units table: given, or pknca_units_table()"]
     A3 --> B["pk.nca()"]
     B --> B1["assert_intervals(); convert date-time<br/>times and intervals to numbers"]
-    B1 --> B2["Merge the object's options into PKNCA.options()"]
+    B1 --> B2["Overlay the object's options on a<br/>copy of PKNCA.options()"]
     B2 --> B3["Expand reference intervals for<br/>secondary parameters"]
     B3 --> B4["full_join_PKNCAdata(): split concentration,<br/>dose, and interval data by group"]
     B4 --> C["pk.nca.intervals(): one call per group"]
@@ -169,7 +169,7 @@ PKNCA.options(min.hl.points = old_val)
 PKNCA.options("min.hl.points")
 ```
 
-> Prefer passing `options = list(...)` to `PKNCAdata()` over mutating global options. Global changes persist across analyses in the same session. `pk.nca()` merges the object's options into the global ones at the start of each run, and `PKNCA_options_defaults()` (≥ 0.13.0) returns the package defaults without resetting anything.
+> Prefer passing `options = list(...)` to `PKNCAdata()` over mutating global options. Global changes persist across analyses in the same session. At the start of each run, `pk.nca()` overlays the object's options on a copy of the global options and uses that copy for the calculations; the global options themselves are not modified. `PKNCA_options_defaults()` (≥ 0.13.0) returns the package defaults without resetting anything.
 
 ## Sparse PK
 

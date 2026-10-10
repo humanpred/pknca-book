@@ -146,7 +146,8 @@ o_dose_iv <- PKNCAdose(data.frame(dose = 100, time = 0), dose ~ time, route = "i
 o_nca_iv <- pk.nca(PKNCAdata(
   o_conc_iv, o_dose_iv,
   intervals = data.frame(start = 0, end = Inf, c0 = TRUE, aucivlast = TRUE,
-                         aucivinf.obs = TRUE, aumcivinf.obs = TRUE, cl.iv.obs = TRUE)
+                         aucivinf.obs = TRUE, aumcivinf.obs = TRUE, cl.iv.obs = TRUE,
+                         mrt.iv.obs = TRUE, vss.iv.obs = TRUE)
 ))
 summary(o_nca_iv)
 ```

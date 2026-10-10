@@ -105,7 +105,7 @@ as.data.frame(o_nca) |>
 - **Tobit half-life** — set `lloq` on `PKNCAconc()`; in PKNCA ≥ 0.13.0 it is passed through to `pk.calc.half.life()` automatically, so the full `pk.nca()` pipeline works with `options = list(hl_method = "tobit")`. (Older versions required calling `pk.calc.half.life()` directly.)
 - **Sparse parameters** — use the standard names (`auclast`, `aucinf.obs`, …); with `PKNCAconc(sparse = TRUE)` their `_se` and `_df` companions are calculated with them. The `sparse_*` names are deprecated.
 - **Tobit with imputation** — until the LLOQ is carried onto imputed rows (pknca PR 678), combining `hl_method = "tobit"` with `impute = "start_conc0"` errors; examples show Tobit without imputation.
-- **`normalize()`** — replaces the original parameters (does not append). To keep both, `bind_rows()` before and after.
+- **`normalize()`** — on a data frame it replaces the original parameters (does not append); on a `PKNCAresults` object it appends the normalized rows.
 - **New option defaults** — always verify with `PKNCA.options("option_name")` before documenting the default.
 
 ---
@@ -132,7 +132,7 @@ as.data.frame(o_nca) |>
 - Add new sections or update existing ones in the relevant `.qmd` files.
 - Tag new features with `(≥ X.Y.Z)` so readers know when they were introduced.
 - Keep the shared dataset pattern consistent across pages.
-- If the new version introduces new functions, add them to the `:::callout-note` pkgdown reference footer at the bottom of the relevant chapter(s). The link pattern is `[function()]( https://humanpred.github.io/pknca/reference/function.html)`.
+- If the new version introduces new functions, add them to the `:::callout-note` pkgdown reference footer at the bottom of the relevant chapter(s). The link pattern is `[function()](https://humanpred.github.io/pknca/reference/function.html)`.
 
 ---
 
@@ -142,7 +142,7 @@ as.data.frame(o_nca) |>
 quarto render
 ```
 
-- Watch for **red error output** in the console — chunks that error are flagged even though `execute: error: false` suppresses them in the HTML output.
+- Watch for **red error output** in the console — with `execute: error: false`, a chunk that errors stops the render.
 - Fix the code, not the error suppression.
 
 Then open the book and spot-check every updated page:
@@ -234,7 +234,7 @@ user/                # 25 User Guide chapters (order in _quarto.yml)
   imputation.qmd                # start_conc0
   dose-aware-interpolation.qmd  # interp.extrap.conc.dose
   custom-parameters.qmd         # add.interval.col()
-  utilities.qmd                 # geomean
+  utilities.qmd                 # clean.conc.*
   regulatory.qmd                # CDISC output
   validation.qmd                # testthat suite
 dev/                 # Developer Reference

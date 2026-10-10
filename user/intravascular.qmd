@@ -211,21 +211,20 @@ as.data.frame(o_nca_hl) |>
 **Controlling half-life quality:**
 
 ```{r}
-# Stricter: require at least 4 points and R² ≥ 0.95
+# Stricter: require at least 4 points in the fit; then exclude fits with
+# R² < 0.95 (min.hl.r.squared is applied by the exclusion rule, not by the fit)
 o_data_strict <- PKNCAdata(
   o_conc, o_dose,
   intervals = hl_params,
   impute = "start_conc0",
-  options = list(
-    min.hl.points    = 4,
-    min.hl.r.squared = 0.95
-  )
+  options = list(min.hl.points = 4)
 )
-o_nca_strict <- pk.nca(o_data_strict)
+o_nca_strict <- pk.nca(o_data_strict) |>
+  exclude(FUN = exclude_nca_min.hl.r.squared(0.95))
 
 as.data.frame(o_nca_strict) |>
   filter(PPTESTCD %in% c("half.life", "r.squared", "lambda.z.n.points")) |>
-  select(Subject, PPTESTCD, PPORRES) |>
+  select(Subject, PPTESTCD, PPORRES, exclude) |>
   arrange(Subject, PPTESTCD)
 ```
 
@@ -458,7 +457,14 @@ as.data.frame(o_nca_auciv) |>
   arrange(Subject, PPTESTCD)
 ```
 
-> **When to use `auciv*` vs `auclast`/`aucinf.obs`:** For an IV bolus sampled after the dose, `aucivlast` and `aucivinf.obs` give the more theoretically correct AUC, and `cl.iv.*` / `vz.iv.*` carry it into clearance and volume. `aucivpbext*` shows how much of that AUC came from back-extrapolation; for Indometh it is about 9–20% depending on the subject and AUC, so the choice matters here.
+```{r}
+#| include: false
+pbext <- as.data.frame(o_nca_auciv) |>
+  filter(grepl("^aucivpbext", PPTESTCD)) |>
+  pull(PPORRES)
+```
+
+> **When to use `auciv*` vs `auclast`/`aucinf.obs`:** For an IV bolus sampled after the dose, `aucivlast` and `aucivinf.obs` give the more theoretically correct AUC, and `cl.iv.*` / `vz.iv.*` carry it into clearance and volume. `aucivpbext*` shows how much of that AUC came from back-extrapolation; for Indometh it is `r round(min(pbext))`–`r round(max(pbext))`% depending on the subject and AUC, so the choice matters here.
 
 ---
 

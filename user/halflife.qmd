@@ -336,9 +336,10 @@ Tobit can be called directly through `pk.calc.half.life()` or used in the full `
 conc_tobit <- c(0, 2.5, 4.8, 4.2, 2.9, 1.4, 0.6, 0.05, 0.01)
 time_tobit <- c(0, 0.5,   1,   2,   4,   8,  12,  16,  24)
 
-# OLS reference
-hl_ols   <- pk.calc.half.life(conc = conc_tobit, time = time_tobit, tmax = 1,
-                               tlast = 24, hl_method = "log-linear")
+# OLS reference — the BLQ observations (16 and 24 h) are dropped
+is_blq <- conc_tobit > 0 & conc_tobit < 0.1
+hl_ols   <- pk.calc.half.life(conc = conc_tobit[!is_blq], time = time_tobit[!is_blq],
+                               tmax = 1, tlast = 12, hl_method = "log-linear")
 
 # Tobit — includes the BLQ observations as left-censored at the scalar lloq
 hl_tobit <- pk.calc.half.life(conc = conc_tobit, time = time_tobit, tmax = 1,
@@ -352,6 +353,8 @@ data.frame(
   n.points  = c(hl_ols$lambda.z.n.points, hl_tobit$lambda.z.n.points)
 )
 ```
+
+With the two BLQ samples dropped, the log-linear fit uses the 4 remaining points after Tmax and gives a half-life of about 3.58 h. Tobit keeps the 16- and 24-hour samples as censored at the LLOQ, so its `lambda.z.n.points` of 6 counts them, and the steeper slope they imply gives a half-life of about 2.61 h.
 
 ### Tobit through the `pk.nca()` pipeline (≥ 0.13.0)
 

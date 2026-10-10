@@ -421,7 +421,7 @@ tryCatch(
 | `pknca_message_tau_units_fallback` | The units package is not installed, so times in a unit other than `"hr"` cannot be compared with the nominal intervals |
 | `pknca_error_no_intervals` | No group got an automatically generated interval |
 
-The first four and `pknca_warning_tau_undetermined` share the parent class `pknca_warning_dose_regimen`. A script that has reviewed its regimens can therefore handle all of them at once without silencing other warnings:
+The first four, `pknca_warning_intervals_nominal_restart`, and `pknca_warning_tau_undetermined` share the parent class `pknca_warning_dose_regimen`. A script that has reviewed its regimens can therefore handle all of them at once without silencing other warnings:
 
 ```{r}
 o_data_reviewed <- withCallingHandlers(

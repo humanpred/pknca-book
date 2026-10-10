@@ -27,7 +27,7 @@ o_nca <- pk.nca(o_data)
 
 ## CDISC PP domain alignment
 
-The CDISC PP domain stores one parameter value per row, with the parameter code in `PPTESTCD` and the original result in `PPORRES`. When a units table is provided, PKNCA additionally fills its own standardized-result column, `PPSTRES`; the corresponding CDISC SDTM variables are `PPSTRESC` (character) and `PPSTRESN` (numeric). PKNCA's `as.data.frame()` output follows exactly this long-format convention.
+The CDISC PP domain stores one parameter value per row, with the parameter code in `PPTESTCD` and the original result in `PPORRES`. With any units table, PKNCA adds the original-unit column `PPORRESU`; when preferred units or custom conversions are requested, it also fills its standardized-result columns, `PPSTRES` and `PPSTRESU` (the corresponding CDISC SDTM variables are `PPSTRESC` (character), `PPSTRESN` (numeric), and `PPSTRESU`). PKNCA's `as.data.frame()` output follows exactly this long-format convention.
 
 ```{r result-columns}
 df <- as.data.frame(o_nca)
@@ -46,7 +46,7 @@ The columns map to CDISC PP variables as follows:
 | `exclude`    | `PPSTAT` / `PPREASND` (or a supplemental qualifier) | Non-`NA` string gives the exclusion reason |
 | Grouping columns (`Subject`, etc.) | `USUBJID`, `PPCAT` | Pass through unchanged |
 
-Units (`PPORRESU`, `PPSTRESU`) are available when the data have units: either unit arguments (`concu`, `timeu`, `doseu`, ...) given to `PKNCAconc()` and `PKNCAdose()`, from which `PKNCAdata()` builds the units table automatically (≥ 0.13.0), or a table from `pknca_units_table()` passed to `PKNCAdata()`. Without units, `PPORRES` carries the raw numeric value and unit derivation must be done externally. For the full units workflow, see the [Units chapter](units.qmd) and [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html).
+The `PPORRESU` column is added whenever the data have units: either unit arguments (`concu`, `timeu`, `doseu`, ...) given to `PKNCAconc()` and `PKNCAdose()`, from which `PKNCAdata()` builds the units table automatically (≥ 0.13.0), or a table from `pknca_units_table()` passed to `PKNCAdata()`. `PPSTRES` and `PPSTRESU` are added only when the units table requests preferred units (`concu_pref`, `timeu_pref`, ...) or custom conversions. Without units, `PPORRES` carries the raw numeric value and unit derivation must be done externally. For the full units workflow, see the [Units chapter](units.qmd) and [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html).
 
 ```{r result-head}
 head(df, 10)

@@ -303,10 +303,10 @@ Applications that assemble PKNCA objects from user data can run the same checks 
 
 | Function | What it checks |
 |---|---|
-| `assert_conc_time()` | Concentrations and times are valid numbers and the times are sorted (also `assert_conc()` and `assert_time()` separately) |
+| `assert_conc_time()` | Concentrations and times are valid numbers and the times are sorted |
 | `assert_impute_method()` | An imputation specification resolves to known methods, the way `PKNCAdata()` and `pk.nca()` resolve it |
 | `PKNCA_impute_fun_list()` | The imputation function names an imputation string resolves to |
-| `assert_PKNCAconc()`, `assert_PKNCAdose()`, `assert_PKNCAdata()`, `assert_PKNCAresults()` | The object has the expected class |
+| `assert_PKNCAconc()`, `assert_PKNCAdose()`, `assert_PKNCAresults()` | The object has the expected class |
 
 ```{r}
 # Unsorted times are an error

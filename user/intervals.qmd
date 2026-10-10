@@ -26,6 +26,8 @@ Every remaining column is normally a **parameter flag**: its name must match a k
 - grouping columns used for matching (see the group-matching section below);
 - the imputation column, which may have any name and is the column that the `impute` argument of `PKNCAdata()` names (see [Imputation columns](#imputation-columns) below and the [Concentration Imputation chapter](imputation.qmd));
 - an `interval_id` column and `<parameter>_ref` columns, which link an interval to a reference interval for secondary parameters such as renal clearance, bioavailability, and ratios (≥ 0.13.0; see the [Secondary Parameters chapter](secondary-parameters.qmd)); and
+- value columns that some parameters read from the interval: `conc_above` (the concentration threshold for `time_above`) and `tau` (the dosing interval for `mrt.md.*` and `vss.md.*`, ≥ 0.13.0; see the [Multiple-Dose and Steady-State chapter](multiple-dose.qmd));
+- `interval_time_kind`, which `pk.nca()` adds when it converts [date-time intervals](#date-time-intervals); and
 - columns carried through to the results via the `keep_interval_cols` option.
 
 Any other column is an error (`pknca_error_invalid_interval_columns`) when the intervals are checked by `PKNCAdata(intervals = )`, `set_intervals()`, or `pk.nca()` (≥ 0.13.0; see [Validating intervals](#validating-intervals)).
@@ -173,7 +175,7 @@ Overlapping intervals are allowed and do not interfere with each other.
 
 Some sampling designs record a *duration* rather than an instantaneous sample — for example, urine collection periods or IV infusions. PKNCA tracks these via the `duration` argument in `PKNCAconc()` and `PKNCAdose()`.
 
-When a concentration object carries duration information, PKNCA selects samples for an interval based on **both the start and end of the collection period**. The collection end time must fall at or before the interval `end` for the sample to be included:
+When a concentration object carries duration information, PKNCA still selects samples for an interval by their recorded time, which is the **start** of the collection period: a collection is included when its start is at or after the interval `start` and at or before the interval `end`. The duration is not consulted during selection, so a collection that starts inside the interval but ends after `end` contributes its full amount to the interval. For results that are simple to interpret, align the collection boundaries with the interval boundaries, as here:
 
 ```{r duration-concept}
 # Urine collected 0-4, 4-8, and 8-24 h after a 100 mg oral dose
@@ -242,7 +244,7 @@ pknca_interval_table(
   select(where(~ !is.logical(.x) || any(.x)))
 ```
 
-`include` and `exclude` accept parameter names or the concepts listed by `pknca_concepts()`, so `include = "mrt"` adds the MRT that matches the AUC basis and `exclude = "clearance"` drops `cl.obs`:
+`include` and `exclude` accept parameter names or the concepts listed by `pknca_concepts()`, so `include = "mrt"` adds the MRT parameters the single-dose context calculates (`mrt.last` and `mrt.obs` in the output below) and `exclude = "clearance"` drops `cl.obs`:
 
 ```{r interval-table-include}
 pknca_interval_table(0, Inf, include = c("mrt", "aumclast"), exclude = "clearance") |>
@@ -407,7 +409,7 @@ get_impute_column(d_int_named, impute = "start_conc0")
 
 ---
 
-## Date-time intervals
+## Date-time intervals {#date-time-intervals}
 
 With date-time (POSIXct or Date) concentration and dose times (≥ 0.13.0), `start` and `end` may also be date-times. `pk.nca()` converts each row to numeric time relative to the time reference (the first dose) of the group it applies to. A row that does not name every reference group becomes one row per group, because one clock-time window is a different relative window for each subject. An `end` of `Inf` stays infinite.
 
@@ -529,7 +531,13 @@ valid_int <- data.frame(
   aucinf.obs = c(FALSE, TRUE),
   cmax       = c(FALSE, TRUE)
 )
-check.interval.specification(valid_int)
+valid_checked <- check.interval.specification(valid_int)
+
+# Every registered parameter column is filled in ...
+ncol(valid_checked)
+# ... but only the requested ones are TRUE
+valid_checked |>
+  select(where(~ !is.logical(.x) || any(.x)))
 ```
 
 An invalid interval (`start >= end`) is an error; here it is caught to show its class and message:
@@ -546,7 +554,7 @@ tryCatch(
 )
 ```
 
-`assert_intervals()` checks a specification against a `PKNCAdata` object, and `set_intervals()` checks it and then stores it in the object. They run whenever intervals are given to `PKNCAdata()`, and `pk.nca()` runs `assert_intervals()` again, so intervals assigned directly to `o_data$intervals` are checked too (≥ 0.13.0). Beyond the checks above, they require that every column is a group column, a parameter, the imputation column, `interval_id` or a `_ref` column, or listed in `keep_interval_cols`; that every `start` is finite and not missing; and that every `end` is after its `start` (`Inf` is allowed, but not missing, `NaN`, or `-Inf`). The errors name the offending columns or rows:
+`assert_intervals()` checks a specification against a `PKNCAdata` object, and `set_intervals()` checks it and then stores it in the object. They run whenever intervals are given to `PKNCAdata()`, and `pk.nca()` runs `assert_intervals()` again, so intervals assigned directly to `o_data$intervals` are checked too (≥ 0.13.0). Beyond the checks above, they require that every column is a group column, a parameter, the imputation column, `conc_above`, `tau`, `interval_id`, a `_ref` column, `interval_time_kind`, or listed in `keep_interval_cols`; that every `start` is finite and not missing; and that every `end` is after its `start` (`Inf` is allowed, but not missing, `NaN`, or `-Inf`). The errors name the offending columns or rows:
 
 ```{r assert-intervals}
 o_data_check <- PKNCAdata(o_conc, o_dose, intervals = valid_int)
