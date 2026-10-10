@@ -11,186 +11,385 @@ conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 
 ## What is sparse PK?
 
-In **dense PK**, each subject contributes a full concentration-time profile (multiple samples per subject). In **sparse PK**, each subject contributes only one or a few samples, and the population-level profile is reconstructed by pooling across subjects.
+In **dense PK**, each subject contributes a full concentration-time profile. In **sparse PK**, each subject (usually an animal) contributes only one or a few samples, so there is no individual profile to analyze. Instead, the samples of all animals in a group are pooled into one profile, and the parameters describe that group.
 
-Sparse sampling is common in:
+Holder et al. (1999) describe three sampling designs:
 
-- **Preclinical toxicokinetic studies** — serial sacrifice designs where each animal is sampled at only one timepoint
-- **Pediatric or special population studies** — where blood volume limits the number of draws per patient
-- **Large observational studies** — with opportunistic sampling
+- **Serial sacrifice** (destructive sampling): each animal is sampled once, typically at necropsy, with a few animals at each timepoint. This is the usual toxicokinetic design in rodents.
+- **Batch**: animals are divided into batches, and each animal in a batch is sampled at the same subset of the timepoints, so each animal gives two or three samples but no animal gives the whole profile.
+- **Complete**: every animal is sampled at every timepoint. Such data can be analyzed as dense data, one animal at a time, or pooled as sparse data.
 
-PKNCA handles sparse PK by computing a **mean concentration-time profile** across all subjects at each timepoint, then running NCA on that mean profile, along with a standard error estimate from the Nedelman & Jia (1998) method. See also the package vignette [Sparse NCA Calculations](https://humanpred.github.io/pknca/articles/v04-sparse.html).
+PKNCA handles all three with the same code: give `sparse = TRUE` to `PKNCAconc()` and request the parameters by their usual names. Two things happen behind that flag:
+
+1. The AUC and AUMC parameters that have a sparse estimator (`auclast`, `aucall`, `aucinf.obs`, `aumclast`, `aumcall`, `aumcinf.obs`, and after an IV bolus the `auciv*` and `aumciv*` equivalents) are calculated from the pooled samples with the Bailer (1988) point estimate and the Nedelman–Jia/Holder standard error. Each reports a standard error and degrees of freedom alongside it, with the suffixes `_se` and `_df` (for example, `auclast_se` and `auclast_df`) (≥ 0.13.0).
+2. Every other parameter (Cmax, Tmax, half-life, and so on) is calculated from the **arithmetic-mean profile** of the animals in the group.
+
+See also the package vignette [Sparse NCA Calculations](https://humanpred.github.io/pknca/articles/v04-sparse.html). The AUC to infinity, its standard error with the uncertainty of λz, and IV bolus dosing are covered in the next chapter, [Sparse AUC to Infinity and Its Uncertainty](sparse-uncertainty.qmd).
 
 ---
 
 ## Dataset: serial sacrifice design
 
-We construct a synthetic dataset following the Holder et al. (1999) design:
-7 nominal timepoints (including pre-dose t = 0), 3 subjects sampled at each timepoint (21 subjects total, 1 sample each).
+The example is a simulated oral study: 7 timepoints with 4 animals sacrificed at each (28 animals, one sample each). As is usual for sacrificial designs, no animal is sampled at the time of the dose.
 
 ```{r}
 set.seed(42)
 
-# True PK parameters (oral, 1-compartment)
-ka  <- 1.5   # h⁻¹ absorption rate
-kel <- 0.25  # h⁻¹ elimination rate
-dose <- 100  # mg
-V   <- 50    # L
-
-pk_conc <- function(t, ka, kel, dose, V) {
-  (dose / V) * (ka / (ka - kel)) * (exp(-kel * t) - exp(-ka * t))
+# One-compartment oral model (ka and kel in 1/h, dose in mg, v in L)
+pk_conc <- function(t, ka = 1.5, kel = 0.15, dose = 100, v = 50) {
+  (dose / v) * (ka / (ka - kel)) * (exp(-kel * t) - exp(-ka * t))
 }
 
-timepoints <- c(0, 0.5, 1, 2, 4, 8, 24)  # include t=0 (pre-dose, conc=0)
-n_per_time <- 3
+d_serial <- data.frame(time = rep(c(0.5, 1, 2, 4, 8, 12, 24), each = 4))
+# Every animal needs its own identifier, even with one sample per animal
+d_serial$animal <- seq_len(nrow(d_serial))
+d_serial$conc <- signif(pk_conc(d_serial$time) * exp(rnorm(nrow(d_serial), sd = 0.25)), 3)
 
-d_sparse <- lapply(timepoints, function(t) {
-  true_c <- pk_conc(t, ka, kel, dose, V)
-  data.frame(
-    time    = t,
-    conc    = if (t == 0) rep(0, n_per_time)
-              else pmax(0, rnorm(n_per_time, mean = true_c, sd = true_c * 0.25)),
-    Subject = paste0("S", sprintf("%02d", which(timepoints == t) * 10 + seq_len(n_per_time)))
-  )
-}) |> bind_rows()
-
-head(d_sparse, 12)
+head(d_serial, 8)
 ```
 
 ```{r}
-ggplot(d_sparse, aes(x = time, y = conc)) +
-  geom_point(aes(colour = Subject), size = 3, show.legend = FALSE) +
+ggplot(d_serial, aes(x = time, y = conc)) +
+  geom_point(size = 2, colour = "grey50") +
   stat_summary(fun = mean, geom = "line", linewidth = 1, colour = "black") +
   stat_summary(fun = mean, geom = "point", size = 4, colour = "black", shape = 18) +
   labs(
-    title = "Sparse PK — individual samples (colored) and mean profile (black)",
+    title = "Serial sacrifice: individual samples (grey) and mean profile (black)",
     x = "Time (h)", y = "Concentration (mg/L)"
   ) +
   theme_minimal()
 ```
 
+Subject (animal) identifiers are required even when every animal gives one sample, because which animal contributed which samples changes the standard error. With one sample per animal, a sequential number is enough, as above.
+
 ---
 
 ## The sparse workflow
 
-The main differences from standard NCA are `sparse = TRUE` in `PKNCAconc()` and requesting the `sparse_`-prefixed interval parameters.
-
 ```{r}
-# Step 1: concentration object — flag as sparse
-o_conc <- PKNCAconc(d_sparse, conc ~ time | Subject, sparse = TRUE)
+# Concentration object: flag the data as sparse
+o_conc <- PKNCAconc(d_serial, conc ~ time | animal, sparse = TRUE)
 
-# Step 2: dose object — one row per subject (all received the same dose at t=0)
-d_dose <- data.frame(Subject = unique(d_sparse$Subject), dose = dose, time = 0)
-o_dose <- PKNCAdose(d_dose, dose ~ time | Subject, route = "extravascular")
+# Dose object: one row with no groups applies to every animal
+d_dose <- data.frame(dose = 100, time = 0)
+o_dose <- PKNCAdose(d_dose, dose ~ time)
 
-# Step 3: data object with sparse interval
+# Data object: the usual parameter names, and a zero imputed at time 0
 o_data <- PKNCAdata(
   o_conc, o_dose,
   intervals = data.frame(
-    start          = 0,
-    end            = Inf,
-    sparse_auclast = TRUE
-  )
-  # no imputation needed — t=0 pre-dose samples are in the dataset
+    start = 0, end = 24,
+    auclast = TRUE, aumclast = TRUE, cmax = TRUE, tmax = TRUE, half.life = TRUE
+  ),
+  impute = "start_conc0"
 )
 
-# Step 4: run
 o_nca <- pk.nca(o_data)
-as.data.frame(o_nca)
+as.data.frame(o_nca) |>
+  select(PPTESTCD, PPORRES)
 ```
 
-PKNCA returns three values for sparse AUC:
+There is one row per parameter for the group, not one per animal. `auclast_se`, `auclast_df`, `aumclast_se`, and `aumclast_df` are reported although they were not requested, because the sparse estimator returns all three together. They can also be requested on their own; requesting them for dense data is an error ("This parameter is only calculated for sparse PK").
 
-| Parameter | Meaning |
+`pk.nca()` prints a message that the `auc.method` option does not apply to the sparse estimators. The sparse variance is derived for a fixed-weight linear combination of the means, so the sparse estimators always use the linear trapezoidal rule, whatever `auc.method` says (its default is `"lin up/log down"`). Parameters calculated from the mean profile do follow `auc.method`.
+
+### A concentration at time 0
+
+As for any AUC in PKNCA, the sparse AUC needs a concentration at the start of the interval, measured or imputed. Without one, the AUC and its standard error and degrees of freedom are `NA`:
+
+```{r}
+o_nca_no_c0 <- pk.nca(PKNCAdata(
+  o_conc, o_dose,
+  intervals = data.frame(start = 0, end = 24, auclast = TRUE)
+))
+as.data.frame(o_nca_no_c0) |>
+  select(PPTESTCD, PPORRES)
+```
+
+The warning ("Requesting an AUC range starting (0) before the first measurement (0.5) is not allowed") explains the `NA`. After an extravascular dose, impute a zero with `impute = "start_conc0"`, as in the first example (≥ 0.13.0; see [Concentration Imputation](imputation.qmd)). The imputed zero is known rather than measured, so it has weight in the estimate but adds nothing to the variance or the degrees of freedom. A pre-dose sample measured as zero works the same way. Other imputations (such as `start_predose`) give estimates whose uncertainty the sparse estimators cannot include, so when they would add a concentration to the pooled samples, `pk.nca()` stops with the `pknca_error_sparse_impute` error. After an IV bolus, request the IV parameters instead; they back-extrapolate C0 from the mean profile (see [Sparse AUC to Infinity and Its Uncertainty](sparse-uncertainty.qmd#iv-bolus-c0)).
+
+`pknca_interval_table()` (≥ 0.13.0) has a `sparse_single_dose` preset that requests a single-dose parameter set with the `start_conc0` imputation:
+
+```{r}
+d_preset <- pknca_interval_table(0, Inf, preset = "sparse_single_dose")
+names(d_preset)[vapply(d_preset, isTRUE, logical(1))]
+d_preset$impute
+```
+
+See [Interval Selection and Parameter Catalog](intervals.qmd) for interval specifications in general.
+
+---
+
+## The mean profile and BLQ samples
+
+The mean profile is the arithmetic mean of the samples at each timepoint, with one rule for samples below the limit of quantification (BLQ, coded as 0): if **strictly more than 50%** of the samples at a timepoint are BLQ, the mean at that timepoint is set to 0. At exactly 50% BLQ, the mean is calculated normally, with the BLQ values as 0. This method (`"arithmetic mean, <=50% BLQ"`) is not a user-facing option.
+
+To see the rule, censor the serial data at an LLOQ of 0.06 mg/L, which makes 3 of the 4 samples at 24 h BLQ. `sparse_mean()` calculates the mean profile from an `as_sparse_pk()` object:
+
+```{r}
+d_blq <- d_serial |>
+  mutate(lloq = 0.06, conc = ifelse(conc < lloq, 0, conc))
+
+sp <- sparse_mean(as_sparse_pk(conc = d_blq$conc, time = d_blq$time, subject = d_blq$animal))
+data.frame(
+  time = vapply(sp, `[[`, numeric(1), "time"),
+  n_blq = vapply(sp, function(x) sum(x$conc == 0), numeric(1)),
+  mean = vapply(sp, `[[`, numeric(1), "mean")
+)
+```
+
+The 24 h mean is zero although one animal had a measurable concentration, so tlast becomes 12 h. The sparse AUClast stops at tlast, and the times after tlast do not contribute to its standard error or degrees of freedom either (≥ 0.13.0). The `conc.blq` option applies as for dense data (see [Utility Functions](utilities.qmd)), and per-run `options` in `PKNCAdata()` reach the sparse estimators the same way as global `PKNCA.options()` settings. Missing (`NA`) concentrations are dropped.
+
+---
+
+## Confidence intervals
+
+The standard error and degrees of freedom give a *t*-based confidence interval:
+
+```{r}
+d_res <- as.data.frame(o_nca)
+auc <- d_res$PPORRES[d_res$PPTESTCD == "auclast"]
+se  <- d_res$PPORRES[d_res$PPTESTCD == "auclast_se"]
+df  <- d_res$PPORRES[d_res$PPTESTCD == "auclast_df"]
+
+ci <- auc + c(-1, 1) * qt(0.975, df) * se
+sprintf("AUClast = %.2f, 95%% CI: %.2f to %.2f (df = %.1f)", auc, ci[1], ci[2], df)
+```
+
+With serial sacrifice, the degrees of freedom are the Satterthwaite approximation of Nedelman, Gibiansky, and Lau (1995). They are not the number of animals minus one: here, with `r nrow(d_serial)` animals, `auclast_df` is `r round(df, 1)`. They are `NA` when a timepoint has a single animal, because its variance cannot be estimated.
+
+---
+
+## The summary shows the estimate and its standard error
+
+```{r}
+summary(o_nca)
+```
+
+In `summary()`, a sparse AUC or AUMC is shown as the estimate with its standard error in brackets (≥ 0.13.0); the caption says "estimate and standard error", and `auclast_se` gets no column of its own. (In PKNCA 0.12.1, the single sparse estimate was described as a geometric mean with a geometric coefficient of variation.) Each standard error describes one estimate, so a summary row that would combine more than one sparse estimate (for example, after `drop_group` removes the group that separates them) is the `pknca_error_summary_multiple_spread` error.
+
+This pairing is set with the `spread_for` argument of `PKNCA.set.summary()` (≥ 0.13.0): the summary instructions registered for `auclast_se` have `spread_for = "auclast"`, so `auclast` is summarized with the `point` function applied to its values and the `spread` function applied to the `auclast_se` values. The same argument lets a custom parameter be summarized with the spread from another parameter. See [Post-Processing Results](postprocessing.qmd) for summary settings in general.
+
+---
+
+## Derived parameters
+
+Because the sparse estimate is stored under the standard parameter name, every parameter derived from an AUC picks it up by name (≥ 0.13.0): `cl.last` divides the dose by the sparse `auclast`, `mrt.last` divides `aumclast` by `auclast`, `cl.obs` divides the dose by the sparse `aucinf.obs`, and so on down the usual derived graph.
+
+```{r}
+o_nca_derived <- pk.nca(PKNCAdata(
+  o_conc, o_dose,
+  intervals = data.frame(
+    start = 0, end = Inf,
+    aumclast = TRUE, cl.last = TRUE, mrt.last = TRUE, kel.last = TRUE,
+    vss.last = TRUE, vz.last = TRUE, lambda.z = TRUE,
+    cl.obs = TRUE, mrt.obs = TRUE, vz.obs = TRUE
+  ),
+  impute = "start_conc0"
+))
+
+as.data.frame(o_nca_derived) |>
+  filter(PPTESTCD %in% c("auclast", "aumclast", "aucinf.obs", "aumcinf.obs", "lambda.z",
+                         "cl.last", "mrt.last", "kel.last", "vss.last", "vz.last",
+                         "cl.obs", "mrt.obs", "vz.obs")) |>
+  select(PPTESTCD, PPORRES)
+```
+
+Points to note:
+
+- `kel.last`, like the rest of PKNCA's `kel` family, is `1/MRT`, not the terminal rate constant. Request `lambda.z` for that.
+- `vz.last` is the clearance divided by `lambda.z` fitted to the mean profile, the standard toxicokinetic approach. It is `NA` when the mean profile has too few points after its peak to fit λz.
+- The derived parameters have no `_se` or `_df` companions. For their uncertainty, use the [bootstrap](#bootstrap-for-any-parameter).
+- With extravascular data such as these, the clearance and volume values are apparent (CL/F, V/F).
+
+---
+
+## Half-life of the mean profile
+
+The half-life is fitted to the mean profile, with the same automatic point selection as for dense data (see [Half-Life and Terminal Phase](halflife.qmd)). It describes the population mean curve, which is not the half-life of a typical animal: the late means are dominated by the animals that eliminate slowly, and BLQ samples counted as zero pull the late means down (see the [recommendations](sparse-uncertainty.qmd#practical-recommendations)).
+
+The Tobit half-life (`hl_method = "tobit"`) works for sparse data (≥ 0.13.0). Give the LLOQ with the `lloq` argument of `PKNCAconc()`; the mean profile carries the median LLOQ of the samples at each timepoint, so a timepoint whose mean is set to zero is treated as censored at the LLOQ rather than dropped:
+
+```{r}
+o_conc_blq <- PKNCAconc(d_blq, conc ~ time | animal, sparse = TRUE, lloq = "lloq")
+d_hl_interval <- data.frame(start = 0, end = Inf, half.life = TRUE)
+
+d_hl <- bind_rows(
+  `log-linear` = as.data.frame(pk.nca(PKNCAdata(o_conc_blq, o_dose, intervals = d_hl_interval))),
+  tobit = as.data.frame(pk.nca(PKNCAdata(
+    o_conc_blq, o_dose, intervals = d_hl_interval,
+    options = list(hl_method = "tobit")
+  ))),
+  .id = "hl_method"
+)
+d_hl |>
+  filter(PPTESTCD %in% c("half.life", "lambda.z.time.last", "lambda.z.n.points", "lambda.z.n.points_blq")) |>
+  select(hl_method, PPTESTCD, PPORRES) |>
+  tidyr::pivot_wider(names_from = hl_method, values_from = PPORRES)
+```
+
+The log-linear fit stops at the 12 h tlast; the Tobit fit also uses the censored 24 h mean. The delta-method standard error of the AUC to infinity needs the log-linear half-life: with `hl_method = "tobit"`, `aucinf.obs_se` and `aucinf.obs_df` are `NA` with the `pknca_warning_sparse_lambda_z_se_hl_method` warning, unless `sparse_lambda_z_se = "none"` (see the [next chapter](sparse-uncertainty.qmd)).
+
+---
+
+## Batch designs
+
+In a batch design, each animal gives several samples. The example has three batches of 4 animals, each batch sampled at two or three of the timepoints:
+
+```{r}
+set.seed(7)
+d_batch_times <- data.frame(batch = c(1, 1, 1, 2, 2, 3, 3), time = c(0.5, 4, 24, 1, 8, 2, 12))
+d_batch <- merge(data.frame(batch = rep(1:3, each = 4), animal = 1:12), d_batch_times)
+d_batch$conc <- signif(pk_conc(d_batch$time) * exp(rnorm(nrow(d_batch), sd = 0.25)), 3)
+
+# Number of animals sampled at each time, by batch
+table(d_batch$batch, d_batch$time)
+```
+
+The code is the same as for serial sacrifice:
+
+```{r}
+o_conc_batch <- PKNCAconc(d_batch, conc ~ time | animal, sparse = TRUE)
+o_nca_batch <- pk.nca(PKNCAdata(
+  o_conc_batch, o_dose,
+  intervals = data.frame(start = 0, end = 24, auclast = TRUE, aumclast = TRUE),
+  impute = "start_conc0"
+))
+as.data.frame(o_nca_batch) |>
+  select(PPTESTCD, PPORRES)
+```
+
+Samples from the same animal are correlated. The standard error includes their covariance with the unbiased estimator of Holder (2001), and the degrees of freedom are the Satterthwaite approximation of Nedelman and Jia (1998, equation 6). Before PKNCA 0.13.0, the degrees of freedom were `NA` with a warning whenever an animal gave more than one sample; they are now calculated, and they match the PK package for batch designs and the published example of Nedelman and Jia (1998).
+
+---
+
+## How animals are grouped
+
+Sparse parameters are calculated from the pooled samples of every animal in the same group. The groups are the grouping variables on the right of `|` in the `PKNCAconc()` formula **with the subject removed**. With `conc ~ time | animal`, removing `animal` leaves no grouping variables, so all of the data form one group. With `conc ~ time | study + treatment + animal`, the animals are pooled within each combination of `study` and `treatment`. The subject does not have to be in the formula: `PKNCAconc(d, conc ~ time | treatment, subject = "animal", sparse = TRUE)` pools by `treatment`. (Before PKNCA 0.13.0, such data were rejected as duplicates when different animals shared a sampling time.)
+
+All animals in a group must share the same dosing; if they do not, PKNCA stops with an error naming the group. See [How Subjects Are Grouped for Sparse Calculations](https://humanpred.github.io/pknca/articles/v04-sparse.html#how-subjects-are-grouped-for-sparse-calculations) in the vignette.
+
+---
+
+## Bootstrap for any parameter
+
+The standard errors above exist only for the AUC and AUMC families. `sparse_bootstrap()` (≥ 0.13.0) gives uncertainty for every parameter, including Cmax, the half-life, the derived parameters, and ratios between groups. It implements the stratified nonparametric bootstrap of Shen and Machado (2017): animals are resampled with replacement within each set of sampling times (each timepoint with serial sacrifice, each batch in a batch design), keeping each animal's samples together, and every replicate is calculated exactly as the original data are. It returns a sparse `PKNCAconc` object with the original data and the replicates as a new group column (`bootstrap` by default, with the values `"original"` and `"bootstrap1"`, `"bootstrap2"`, ...), and it stores the random seed so that the replicates can be reproduced.
+
+The default is `n_boot = 200` replicates, enough for the mean and standard deviation (Takemoto et al. 2006); percentile intervals need more to be stable. To render quickly, this example uses 50:
+
+```{r}
+o_conc_boot <- sparse_bootstrap(o_conc, n_boot = 50, seed = 20261010)
+o_data_boot <- PKNCAdata(
+  o_conc_boot, o_dose,
+  intervals = data.frame(start = 0, end = 24, auclast = TRUE, cmax = TRUE, tmax = TRUE, half.life = TRUE),
+  impute = "start_conc0",
+  # Many replicate groups would otherwise show a progress bar
+  options = list(progress = FALSE)
+)
+o_nca_boot <- pk.nca(o_data_boot)
+summary(o_nca_boot)
+```
+
+`pk.nca()` returns a `PKNCAresults_sparse_bootstrap` object. Its `summary()` treats the replicates the way the summary of dense data treats subjects, with each parameter's usual summary statistics (here, for example, the geometric mean and geometric CV of the replicates' AUClast). `N` is the number of animals in the study, and the caption gives the number of replicates and the seed. `as.data.frame()` has every replicate, including the `"original"` one with the estimates, so the bootstrap standard error is the standard deviation of the replicates:
+
+```{r}
+d_boot <- as.data.frame(o_nca_boot)
+d_boot_original <- d_boot |>
+  filter(bootstrap == "original") |>
+  select(PPTESTCD, original = PPORRES)
+d_boot |>
+  filter(bootstrap != "original", PPTESTCD %in% c("auclast", "cmax", "half.life")) |>
+  group_by(PPTESTCD) |>
+  summarise(
+    bootstrap_se = sd(PPORRES),
+    lower_95 = quantile(PPORRES, 0.025),
+    upper_95 = quantile(PPORRES, 0.975)
+  ) |>
+  left_join(d_boot_original, by = "PPTESTCD")
+```
+
+The bootstrap standard error of `auclast` (`r signif(sd(d_boot$PPORRES[d_boot$bootstrap != "original" & d_boot$PPTESTCD == "auclast"]), 3)`) is smaller than the analytical `auclast_se` (`r signif(d_res$PPORRES[d_res$PPTESTCD == "auclast_se"], 3)`). Resampling *n* animals understates the variance of their mean by the factor (*n* − 1)/*n* (3/4 with 4 animals per timepoint), so with few animals per timepoint the bootstrap intervals are too narrow. Prefer the analytical standard errors for the AUCs, and use the bootstrap for parameters and comparisons that have none; see the [recommendations](sparse-uncertainty.qmd#practical-recommendations).
+
+### Comparing groups with `be_assess()`
+
+`be_assess()` accepts bootstrap results. The ratio of the test and reference estimates (from the `"original"` replicate) is the point estimate, and its confidence interval is the percentile interval of the replicate ratios (90% by default), judged against the acceptance limits; only the `"ABE"` and `"descriptive"` frameworks apply, because a sparse bootstrap has no within-subject variability. In this parallel design, the animals of each formulation are resampled independently:
+
+```{r}
+set.seed(5)
+d_two <- bind_rows(
+  mutate(d_serial, formulation = "reference"),
+  mutate(d_serial, formulation = "test", animal = animal + 100,
+         conc = signif(conc * exp(rnorm(n(), mean = log(0.9), sd = 0.1)), 3))
+)
+o_conc_two <- PKNCAconc(d_two, conc ~ time | formulation + animal, sparse = TRUE,
+                        concu = "mg/L", timeu = "h")
+o_dose_two <- PKNCAdose(data.frame(formulation = c("reference", "test"), dose = 100, time = 0),
+                        dose ~ time | formulation, doseu = "mg")
+o_nca_two <- pk.nca(PKNCAdata(
+  sparse_bootstrap(o_conc_two, n_boot = 50, seed = 20261011), o_dose_two,
+  intervals = data.frame(start = 0, end = 24, auclast = TRUE, cmax = TRUE),
+  impute = "start_conc0", options = list(progress = FALSE)
+))
+o_be <- be_assess(o_nca_two, reference_col = "formulation", reference_value = "reference",
+                  endpoints = c("auclast", "cmax"))
+o_be
+```
+
+The test/reference ratio of AUClast is `r sprintf("%.1f", o_be$gmr_percent[o_be$endpoint == "auclast"])`% with a 90% interval of `r sprintf("%.1f", o_be$ci_lower[o_be$endpoint == "auclast"])`% to `r sprintf("%.1f", o_be$ci_upper[o_be$endpoint == "auclast"])`%, within the 80% to 125% limits; the Cmax interval (`r sprintf("%.1f", o_be$ci_lower[o_be$endpoint == "cmax"])`% to `r sprintf("%.1f", o_be$ci_upper[o_be$endpoint == "cmax"])`%) is not. `n` counts the animals of both formulations.
+
+For a crossover, where each animal receives every treatment, give the treatment column as `paired` to `sparse_bootstrap()` (for example, `paired = "treatment"`), so that each replicate draws the same animals for every treatment. Analytes (the groups after `/` in the formula) are always resampled together. See the [sparse sampling section](bioequivalence.qmd#be-from-sparse-sampling-the-bootstrap-route) of the [Bioequivalence](bioequivalence.qmd) chapter for a paired example and the regulatory context, and the [Bootstrap](https://humanpred.github.io/pknca/articles/v04-sparse.html#bootstrap) section of the vignette.
+
+---
+
+## Sparse parameters
+
+The parameters with a sparse estimator (registered with `FUN_sparse` in `add.interval.col()`), and the sparse-only parameters (which need `sparse = TRUE`), are listed by the parameter registry. The deprecated names (below) are left out:
+
+```{r}
+cols <- get.interval.cols()
+deprecated <- c("sparse_auclast", "sparse_auc_se", "sparse_auc_df", "sparse_aumclast",
+                "sparse_aumc_se", "sparse_aumc_df", "cl.sparse.last", "mrt.sparse.last",
+                "kel.sparse.last", "vss.sparse.last", "vz.sparse.last")
+has_sparse_fun <- vapply(cols, function(x) !is.na(x$FUN_sparse), logical(1))
+d_sparse_estimators <- data.frame(
+  parameter = names(cols)[has_sparse_fun],
+  FUN_sparse = vapply(cols[has_sparse_fun], `[[`, character(1), "FUN_sparse"),
+  description = vapply(cols[has_sparse_fun], `[[`, character(1), "desc")
+)
+d_sparse_estimators |>
+  filter(!parameter %in% deprecated) |>
+  knitr::kable(row.names = FALSE)
+
+# Sparse-only parameters: the _se and _df companions
+d_param <- pknca_parameter_table()
+setdiff(d_param$parameter[d_param$sparse], deprecated)
+```
+
+Every other parameter is calculated from the arithmetic-mean profile.
+
+---
+
+## Deprecated parameter names
+
+Sparse calculations used to be requested through a parallel set of names. All eleven still calculate and give the values they always gave, but each warns (once per session) and **will be an error in the next minor release of PKNCA** (≥ 0.13.0). Only the first three were in a release (0.12.1 and earlier).
+
+| Deprecated | Use instead |
 |---|---|
-| `sparse_auclast` | Mean AUC from 0 to last measurable time (Nedelman & Jia method) |
-| `sparse_auc_se` | Standard error of the AUC estimate |
-| `sparse_auc_df` | Degrees of freedom for confidence interval construction |
+| `sparse_auclast` | `auclast` |
+| `sparse_auc_se` | `auclast_se` |
+| `sparse_auc_df` | `auclast_df` |
+| `sparse_aumclast` | `aumclast` |
+| `sparse_aumc_se` | `aumclast_se` |
+| `sparse_aumc_df` | `aumclast_df` |
+| `cl.sparse.last` | `cl.last` |
+| `mrt.sparse.last` | `mrt.last` |
+| `kel.sparse.last` | `kel.last` |
+| `vss.sparse.last` | `vss.last` |
+| `vz.sparse.last` | `vz.last` |
 
----
+Every replacement except the last gives the same number as the name it replaces. `vz.sparse.last` divided the clearance by `1/MRT`, which made it numerically identical to Vss; `vz.last` divides by the λz of the mean profile, so re-run any comparison that used `vz.sparse.last`.
 
-## How PKNCA computes sparse AUC
-
-1. At each timepoint, compute the **mean concentration** across subjects (pooling all subjects sampled at that time)
-2. Apply the **linear** trapezoidal rule to the mean profile to get AUClast (sparse AUC uses linear weights — see `sparse_auc_weight_linear` — as required by the Nedelman–Jia variance)
-3. Estimate **variance** using the Nedelman & Jia (1998) formula, accounting for the covariance between AUC trapezoids via the Holder (2001) method (full citations are in the vignette)
-4. Return AUClast ± SE and degrees of freedom
-
-```{r}
-# Inspect the mean profile PKNCA uses internally
-mean_profile <- d_sparse |>
-  group_by(time) |>
-  summarise(mean_conc = mean(conc), n = n(), se = sd(conc) / sqrt(n()), .groups = "drop")
-
-mean_profile
-```
-
----
-
-## BLQ handling in sparse PK
-
-`sparse = TRUE` affects how below-the-limit-of-quantification (BLQ) values (coded as 0) are treated at each timepoint before averaging. The default BLQ treatment is controlled by `PKNCA.options("conc.blq")` and applies **before** the mean is computed.
-
-By default the mean profile uses the arithmetic mean with up-to-50%-BLQ handling (`"arithmetic mean, <=50% BLQ"`; see `?sparse_mean`); the method is not a user-facing option. The two internal methods:
-
-- **`"arithmetic mean"`** — simple mean of all values including BLQs as 0
-- **`"arithmetic mean, <=50% BLQ"`** — if **strictly more than 50%** of subjects at a timepoint are BLQ, the mean concentration at that timepoint is set to 0 (at exactly 50% BLQ the mean is not zeroed)
-
-The second method is conservative: timepoints with majority-BLQ results don't pull the mean above zero.
-
----
-
-## Serial sacrifice vs. repeated sampling
-
-How subjects are grouped for sparse calculations is described in [the vignette's grouping section](https://humanpred.github.io/pknca/articles/v04-sparse.html#how-subjects-are-grouped-for-sparse-calculations).
-
-```{r}
-# Serial sacrifice: each subject contributes EXACTLY 1 sample
-d_serial <- d_sparse  # our example above — each subject is at one timepoint only
-
-# Mixed design: some subjects contribute multiple samples
-# (PKNCA handles this too — subjects can appear at multiple times)
-d_mixed <- bind_rows(
-  d_sparse,
-  data.frame(time = 4, conc = 0.8, Subject = "S11"),  # S11 (t=0 in d_sparse) now has 3 samples: 0, 4, 8
-  data.frame(time = 8, conc = 0.3, Subject = "S11")
-)
-
-d_dose_mixed <- data.frame(Subject = unique(d_mixed$Subject), dose = dose, time = 0)
-o_dose_mixed  <- PKNCAdose(d_dose_mixed, dose ~ time | Subject, route = "extravascular")
-o_conc_mixed  <- PKNCAconc(d_mixed, conc ~ time | Subject, sparse = TRUE)
-o_data_mixed  <- PKNCAdata(
-  o_conc_mixed, o_dose_mixed,
-  intervals = data.frame(start = 0, end = Inf, sparse_auclast = TRUE)
-)
-o_nca_mixed <- pk.nca(o_data_mixed)
-as.data.frame(o_nca_mixed)
-```
-
-> **Limitation:** `sparse_auc_df` is `NA` when any subject contributes more than one sample per interval. This is a known current limitation of the Nedelman & Jia variance estimation in PKNCA.
-
----
-
-## Constructing a confidence interval
-
-With AUC, SE, and df you can construct a t-based confidence interval:
-
-```{r}
-res <- as.data.frame(o_nca) |>
-  tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES)
-
-auc <- res$sparse_auclast
-se  <- res$sparse_auc_se
-df  <- res$sparse_auc_df
-
-if (!is.na(df) && !is.na(se)) {
-  ci_lo <- auc - qt(0.975, df) * se
-  ci_hi <- auc + qt(0.975, df) * se
-  cat(sprintf("AUClast = %.2f  95%% CI: [%.2f, %.2f]\n", auc, ci_lo, ci_hi))
-} else {
-  cat(sprintf("AUClast = %.2f  SE = %.2f  (df unavailable for CI)\n", auc, se))
-}
-```
+The functions behind the sparse estimators (`pk.calc.sparse_auc()`, `pk.calc.sparse_auclast()`, `pk.calc.sparse_aumc()`, `pk.calc.sparse_aumclast()`, `as_sparse_pk()`, `sparse_mean()`, `var_sparse_auc()`, `var_sparse_aumc()`, and `cov_holder()`) are not deprecated and remain available for calculations outside `pk.nca()`.
 
 ---
 
@@ -198,95 +397,35 @@ if (!is.na(df) && !is.na(se)) {
 
 | Aspect | Dense PK | Sparse PK |
 |---|---|---|
-| `PKNCAconc` flag | `sparse = FALSE` (default) | `sparse = TRUE` |
-| Profile per subject | Full individual profile | 1–few samples only |
-| NCA run on | Each subject's own profile | Pooled mean profile |
-| Result | One row per subject per parameter | One row per parameter (population level) |
-| Half-life | ✓ (per subject) | ✗ (not available) |
-| AUClast | ✓ | ✓ (`sparse_auclast`) |
-| SE of AUC | ✗ | ✓ (`sparse_auc_se`) |
-| Interval col name | `auclast` | `sparse_auclast` |
+| `PKNCAconc()` flag | `sparse = FALSE` (default) | `sparse = TRUE` |
+| Samples per subject | Full individual profile | One or a few |
+| Results | One row per subject per parameter | One row per group per parameter |
+| AUC and AUMC (`auclast`, `aucinf.obs`, ...) | Trapezoidal rule per subject, `auc.method` | Sparse estimator, linear trapezoidal only |
+| Standard error and df | Not available | `_se` and `_df` companions |
+| Other parameters (Cmax, half-life, ...) | Per subject | From the arithmetic-mean profile |
+| Concentration at time 0 | Measured or any imputation | Measured, or a zero (`start_conc0`); C0 back-extrapolated for IV parameters |
+| Uncertainty of derived parameters | Between-subject summary statistics | `sparse_bootstrap()` |
 
 ---
 
-## Available sparse parameters
+## References
 
-```{r}
-cols <- get.interval.cols()
-sparse_params <- Filter(function(x) isTRUE(x$sparse), cols)
-data.frame(
-  parameter   = names(sparse_params),
-  description = sapply(sparse_params, `[[`, "desc")
-) |> knitr::kable()
-```
+Bailer AJ. Testing for the equality of area under the curves when using destructive measurement techniques. *J Pharmacokinet Biopharm*. 1988;16(3):303-309.
 
----
+Holder DJ, Hsuan F, Dixit R, Soper K. A method for estimating and testing area under the curve in serial sacrifice, batch, and complete data designs. *J Biopharm Stat*. 1999;9(3):451-464.
 
-## Sparse AUMC and derived parameters (≥ 0.12.2)
+Holder DJ. Comments on Nedelman and Jia's extension of Satterthwaite's approximation applied to pharmacokinetics. *J Biopharm Stat*. 2001;11(1-2):75-79.
 
-PKNCA ≥ 0.12.2 adds sparse AUMC (area under the first-moment curve) and five new derived parameters, enabling MRT, clearance, and volume estimation from sparse data.
+Nedelman JR, Gibiansky E, Lau DTW. Applying Bailer's method for AUC confidence intervals to sparse sampling. *Pharm Res*. 1995;12(1):124-128.
 
-### Sparse AUMC
+Nedelman JR, Jia X. An extension of Satterthwaite's approximation applied to pharmacokinetics. *J Biopharm Stat*. 1998;8(2):317-328.
 
-| Parameter | Description |
-|---|---|
-| `sparse_aumclast` | AUMC from the pooled mean sparse profile (0 → last measurable) |
-| `sparse_aumc_se` | Standard error of the sparse AUMC estimate |
-| `sparse_aumc_df` | Degrees of freedom for the AUMC variance estimate |
+Shen M, Machado SG. Bioequivalence evaluation of sparse sampling pharmacokinetics data using bootstrap resampling method. *J Biopharm Stat*. 2017;27(2):257-264.
 
-Requesting `sparse_aumclast = TRUE` automatically computes `sparse_auclast`, `sparse_auc_se`, `sparse_auc_df`, `sparse_aumc_se`, and `sparse_aumc_df` as dependencies.
-
-```{r}
-sparse_aumc_interval <- data.frame(
-  start           = 0,
-  end             = Inf,
-  sparse_aumclast = TRUE   # AUC and SE are computed automatically as dependencies
-)
-
-o_nca_sparse_aumc <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = sparse_aumc_interval))
-
-as.data.frame(o_nca_sparse_aumc) |>
-  select(PPTESTCD, PPORRES)
-```
-
-### Sparse-derived PK parameters
-
-Once sparse AUC and AUMC are available, PKNCA can compute additional population-level parameters:
-
-| Parameter | Description |
-|---|---|
-| `mrt.sparse.last` | Mean residence time from sparse sampling |
-| `cl.sparse.last` | Clearance: dose / sparse AUClast |
-| `kel.sparse.last` | Elimination rate constant: 1 / MRT_sparse |
-| `vss.sparse.last` | Steady-state volume of distribution from sparse sampling |
-| `vz.sparse.last` | Terminal volume of distribution from sparse sampling |
-
-```{r}
-sparse_full_interval <- data.frame(
-  start           = 0,
-  end             = Inf,
-  sparse_aumclast = TRUE,   # also pulls in sparse_auclast, SE, df
-  mrt.sparse.last = TRUE,
-  cl.sparse.last  = TRUE,
-  kel.sparse.last = TRUE,
-  vss.sparse.last = TRUE,
-  vz.sparse.last  = TRUE
-)
-
-o_nca_sparse_full <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = sparse_full_interval))
-
-as.data.frame(o_nca_sparse_full) |>
-  filter(PPTESTCD %in% c("sparse_auclast", "sparse_aumclast",
-                          "mrt.sparse.last", "cl.sparse.last", "kel.sparse.last",
-                          "vss.sparse.last", "vz.sparse.last")) |>
-  select(PPTESTCD, PPORRES)
-```
-
-> `vss.sparse.last` (= CL × MRT) and `vz.sparse.last` (= CL / kel) are derived entirely from the sparse AUC and AUMC — no terminal-phase (λz) fit is needed. Because `kel.sparse.last` is 1/MRT rather than a λz estimate, `vz.sparse.last` is numerically equal to `vss.sparse.last`. With extravascular data like this chapter's, the clearance and volume values are apparent (CL/F, V/F) estimates.
-
+Takemoto S, Yamaoka K, Nishikawa M, Takakura Y. Histogram analysis of pharmacokinetic parameters by bootstrap resampling from one-point sampling data in animal experiments. *Drug Metab Pharmacokinet*. 2006;21(6):458-464.
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [sparse_mean()](https://humanpred.github.io/pknca/reference/sparse_mean.html) · [sparse_auc_weight_linear()](https://humanpred.github.io/pknca/reference/sparse_auc_weight_linear.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [summary.PKNCAresults()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [pknca_interval_table()](https://humanpred.github.io/pknca/reference/pknca_interval_table.html) · [as_sparse_pk()](https://humanpred.github.io/pknca/reference/as_sparse_pk.html) · [sparse_mean()](https://humanpred.github.io/pknca/reference/sparse_mean.html) · [pk.calc.auclast_sparse()](https://humanpred.github.io/pknca/reference/pk.calc.auclast_sparse.html) · [pk.calc.sparse_auc()](https://humanpred.github.io/pknca/reference/pk.calc.sparse_auc.html) · [pk.calc.sparse_aumc()](https://humanpred.github.io/pknca/reference/pk.calc.sparse_aumc.html) · [var_sparse_auc()](https://humanpred.github.io/pknca/reference/var_sparse_auc.html) · [var_sparse_aumc()](https://humanpred.github.io/pknca/reference/var_sparse_aumc.html) · [cov_holder()](https://humanpred.github.io/pknca/reference/cov_holder.html) · [sparse_bootstrap()](https://humanpred.github.io/pknca/reference/sparse_bootstrap.html) · [summary.PKNCAresults_sparse_bootstrap()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults_sparse_bootstrap.html) · [be_assess()](https://humanpred.github.io/pknca/reference/be_assess.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [pknca_parameter_table()](https://humanpred.github.io/pknca/reference/pknca_parameter_table.html)
 :::

@@ -1,0 +1,225 @@
+---
+title: "Sparse AUC to Infinity and Its Uncertainty"
+---
+
+```{r setup, include=FALSE}
+library(PKNCA)
+library(dplyr)
+library(tidyr)
+conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
+```
+
+## Overview
+
+With sparse sampling, each animal gives only one or a few samples, so the AUC is estimated from the mean concentration at each timepoint, and its standard error comes from the variability between animals at each timepoint (see [Sparse PK Sampling](sparse.qmd)). Bailer (1988) gave the estimator and its variance for the AUC from time 0 to the last sampling time with serial sacrifice. Nedelman, Gibiansky, and Lau (1995) added Satterthwaite degrees of freedom, Nedelman and Jia (1998) extended the method to designs where animals give more than one sample, and Holder (2001) gave an unbiased estimator of the covariance between timepoints. Yuan (1993) extended Bailer's method to the AUC from 0 to infinity by adding the extrapolated area C̄last/λz, treating the terminal rate constant λz as known.
+
+In practice, λz is estimated from the same samples, so its uncertainty adds to that of the AUC to infinity. This chapter shows how PKNCA (≥ 0.13.0) calculates the sparse `aucinf.obs` and `aumcinf.obs` with standard errors that include the uncertainty of λz, how it handles IV bolus dosing, and what a simulation study recommends. The derivations and the simulation study are in the package vignette [Sparse AUC to Infinity and the Uncertainty of lambda.z](https://humanpred.github.io/pknca/articles/v24-sparse-auc-to-infinity.html).
+
+---
+
+## The estimators
+
+At each sampling time $t_i$ ($i = 0, \ldots, n$, with $t_n = t_{last}$, the last time with a positive mean), $r_i$ animals are sampled, $\bar{y}_i$ is their arithmetic mean concentration, and $r_{ij}$ animals are sampled at both $t_i$ and $t_j$. The linear trapezoidal AUC to tlast is a weighted sum of the means, so its variance follows from the covariance of the means:
+
+$$\widehat{AUC}_{0-t_{last}} = \sum_{i=0}^{n} w_i \bar{y}_i,
+\qquad
+\text{Var}\left(\widehat{AUC}_{0-t_{last}}\right) = \sum_{i}\sum_{j} w_i w_j \frac{r_{ij}\,\sigma_{ij}}{r_i r_j},$$
+
+where $w_i$ are the trapezoidal weights and $\sigma_{ij}$ is the covariance of the concentrations at $t_i$ and $t_j$ within an animal (the sample variance for $i = j$ and the Holder covariance otherwise; with serial sacrifice, $r_{ij} = 0$ for $i \neq j$).
+
+The AUC to infinity adds the extrapolation from the mean at tlast:
+
+$$\widehat{AUC}_{0-\infty} = \sum_{i=0}^{n} w_i \bar{y}_i + \frac{\bar{y}_n}{\lambda_z}.$$
+
+Its variance has the same form with weights $g_j$ in place of $w_j$:
+
+- **Yuan (1993)**, λz treated as known: $g_j = w_j + \delta_{j,n}/\lambda_z$.
+- **Delta method** (PKNCA's default): λz is minus the least-squares slope of the log means at the half-life points $H$, $\hat\lambda_z = -\sum_{j \in H} c_j \log \bar{y}_j$, a smooth function of the means, so
+  $$g_j = w_j + \frac{\delta_{j,n}}{\lambda_z} + \frac{\bar{y}_n}{\lambda_z^2}\,\frac{c_j}{\bar{y}_j}\,\mathbb{1}_{j \in H},
+  \qquad c_j = \frac{t_j - \bar{t}_H}{\sum_{k \in H}\left(t_k - \bar{t}_H\right)^2}.$$
+  The last term is the uncertainty in λz. Because the gradient is taken over all of the means together, the variance includes the covariance of λz with C̄last and with the AUC to tlast: a high mean at an early half-life point raises the AUC to tlast but steepens the slope, which lowers the extrapolated area. Adding a separately estimated variance of λz to Yuan's variance would miss that.
+
+The AUMC to infinity is calculated the same way from the moment means $t_i \bar{y}_i$, with the extrapolation $t_{last} C_{last}/\lambda_z + C_{last}/\lambda_z^2$. The degrees of freedom are the Satterthwaite approximation of Nedelman and Jia (1998, equation 6) with the weights $g$, with or without the delta-method terms. The delta method conditions on the selected half-life points (the variability from choosing them is not included), and it is a first-order approximation, which is least accurate when λz is imprecise.
+
+### Relation to earlier work
+
+Wolfsegger and Jaki (2005) estimated the AUC from 0 to infinity in serial sacrifice designs with a delta-method variance, with λz estimated from separate terminal timepoints. They extended the estimation to serial sampling designs (Wolfsegger and Jaki 2009) and to flexible sampling designs (Jaki and Wolfsegger 2012), and implemented it in the R package PK (Jaki and Wolfsegger 2011), which estimates λz from the mean of the log concentrations at the last `n.tail` times. PKNCA applies the delta method to the λz fitted to the log of the arithmetic means at its automatically selected half-life points, which is the `lambda.z` (and `half.life`) it reports, so the extrapolation and its standard error use the same λz as the rest of the results; its confidence intervals use a *t* distribution with the Satterthwaite degrees of freedom.
+
+---
+
+## Calculating it with PKNCA
+
+The example is a simulated oral serial-sacrifice study with slow elimination, so that about a fifth of the AUC is extrapolated. No animal is sampled at the dose, so a zero is imputed at time 0 (`impute = "start_conc0"`).
+
+```{r}
+set.seed(42)
+
+# One-compartment oral model with slow elimination (ka and kel in 1/h, dose in mg, v in L)
+pk_conc <- function(t, ka = 1.5, kel = 0.07, dose = 100, v = 50) {
+  (dose / v) * (ka / (ka - kel)) * (exp(-kel * t) - exp(-ka * t))
+}
+
+d_slow <- data.frame(time = rep(c(0.5, 1, 2, 4, 8, 12, 24), each = 4))
+d_slow$animal <- seq_len(nrow(d_slow))
+d_slow$conc <- signif(pk_conc(d_slow$time) * exp(rnorm(nrow(d_slow), sd = 0.3)), 3)
+
+o_conc <- PKNCAconc(d_slow, conc ~ time | animal, sparse = TRUE)
+o_dose <- PKNCAdose(data.frame(dose = 100, time = 0), dose ~ time)
+d_intervals <- data.frame(start = 0, end = Inf, aucinf.obs = TRUE, aumcinf.obs = TRUE, aucpext.obs = TRUE)
+
+o_nca_delta <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = d_intervals, impute = "start_conc0"))
+summary(o_nca_delta)
+```
+
+As described in [Sparse PK Sampling](sparse.qmd#the-sparse-workflow), the message says that the sparse estimators use the linear trapezoidal rule whatever the `auc.method` option. The standard errors and degrees of freedom are reported as `aucinf.obs_se`, `aucinf.obs_df`, `aumcinf.obs_se`, and `aumcinf.obs_df`, and the summary shows each estimate with its standard error in brackets. `aucpext.obs` and the other parameters without a sparse estimator are calculated from the mean profile.
+
+### Delta method or Yuan
+
+The `sparse_lambda_z_se` option chooses the method: `"delta"` (the default) for the delta method or `"none"` for Yuan's method. Set it for all analyses with `PKNCA.options(sparse_lambda_z_se = "none")` or for one analysis with the `options` argument of `PKNCAdata()`:
+
+```{r}
+o_nca_yuan <- pk.nca(PKNCAdata(
+  o_conc, o_dose, intervals = d_intervals, impute = "start_conc0",
+  options = list(sparse_lambda_z_se = "none")
+))
+
+d_compare <- bind_rows(
+  delta = as.data.frame(o_nca_delta),
+  yuan = as.data.frame(o_nca_yuan),
+  .id = "method"
+) |>
+  filter(PPTESTCD %in% c("aucpext.obs", "aucinf.obs", "aucinf.obs_se", "aucinf.obs_df",
+                         "aumcinf.obs", "aumcinf.obs_se", "aumcinf.obs_df")) |>
+  select(method, PPTESTCD, PPORRES) |>
+  pivot_wider(names_from = method, values_from = PPORRES)
+d_compare
+```
+
+```{r include=FALSE}
+compare_value <- function(parameter, method) {
+  signif(d_compare[[method]][d_compare$PPTESTCD == parameter], 3)
+}
+```
+
+The point estimates are the same; only the standard errors and degrees of freedom differ. With `r round(compare_value("aucpext.obs", "delta"), 1)`% of the AUC extrapolated, the delta-method standard error of the AUC to infinity (`r compare_value("aucinf.obs_se", "delta")`) is larger than Yuan's (`r compare_value("aucinf.obs_se", "yuan")`), and for the AUMC, whose extrapolation depends on 1/λz², the difference is larger still (`r compare_value("aumcinf.obs_se", "delta")` against `r compare_value("aumcinf.obs_se", "yuan")`). When little of the AUC is extrapolated, the two are close.
+
+The method is recorded in the `PPANMETH` column:
+
+```{r}
+bind_rows(as.data.frame(o_nca_delta), as.data.frame(o_nca_yuan)) |>
+  filter(PPTESTCD == "aucinf.obs_se") |>
+  pull(PPANMETH)
+```
+
+The delta method needs the log-linear half-life. With `hl_method = "tobit"` (see [Half-Life and Terminal Phase](halflife.qmd)), the delta-method standard error is not calculated: `aucinf.obs_se` and `aucinf.obs_df` are `NA`, with the `pknca_warning_sparse_lambda_z_se_hl_method` warning. Yuan's method (`sparse_lambda_z_se = "none"`) works with either half-life method.
+
+### A confidence interval
+
+```{r}
+d_delta <- as.data.frame(o_nca_delta)
+est <- d_delta$PPORRES[d_delta$PPTESTCD == "aucinf.obs"]
+se  <- d_delta$PPORRES[d_delta$PPTESTCD == "aucinf.obs_se"]
+df  <- d_delta$PPORRES[d_delta$PPTESTCD == "aucinf.obs_df"]
+est + c(-1, 1) * qt(0.975, df) * se
+```
+
+---
+
+## IV bolus: the back-extrapolated C0 {#iv-bolus-c0}
+
+After an IV bolus, the concentration at time 0 is not zero and cannot be measured, so `start_conc0` does not apply. Request the IV parameters instead: `aucivlast`, `aucivall`, `aucivinf.obs`, `aumcivlast`, `aumcivall`, and `aumcivinf.obs` have sparse estimators with `_se` and `_df` companions (≥ 0.13.0). Without a sample at time 0, C0 is back-extrapolated from the mean profile with the methods of `pk.calc.c0()`: log-linear back-extrapolation from the first two means when they decline,
+
+$$\hat{C}_0 = \bar{y}_1 \left(\frac{\bar{y}_1}{\bar{y}_2}\right)^{t_1/(t_2 - t_1)},$$
+
+and otherwise $\bar{y}_1$. The AUC adds the trapezoid from time 0 to $t_1$, and the uncertainty of $\hat{C}_0$ enters the standard error through its gradient with respect to the first two means (the delta method). With the linear trapezoidal rule, the AUMC from 0 to $t_1$ is $t_1^2 \bar{y}_1/2$ whatever C0 is, so C0 does not affect the AUMC. As for `pk.calc.c0()`, a zero at time 0 (measured or imputed) is not used as C0.
+
+```{r}
+set.seed(11)
+iv_conc <- function(t, dose = 100, v = 10, kel = 0.2) dose / v * exp(-kel * t)
+
+d_iv <- data.frame(time = rep(c(0.25, 0.5, 1, 2, 4, 8, 12, 24), each = 3))
+d_iv$animal <- seq_len(nrow(d_iv))
+d_iv$conc <- signif(iv_conc(d_iv$time) * exp(rnorm(nrow(d_iv), sd = 0.2)), 3)
+
+o_conc_iv <- PKNCAconc(d_iv, conc ~ time | animal, sparse = TRUE)
+o_dose_iv <- PKNCAdose(data.frame(dose = 100, time = 0), dose ~ time, route = "intravascular")
+o_nca_iv <- pk.nca(PKNCAdata(
+  o_conc_iv, o_dose_iv,
+  intervals = data.frame(start = 0, end = Inf, c0 = TRUE, aucivlast = TRUE,
+                         aucivinf.obs = TRUE, aumcivinf.obs = TRUE, cl.iv.obs = TRUE)
+))
+summary(o_nca_iv)
+```
+
+The warnings are expected: `aucivlast`, `aucivinf.obs`, and `aumcivinf.obs` are registered as depending on `auclast`, `aucinf.obs`, and `aumcinf.obs`, which are calculated without C0 and so cannot start at time 0 when there is no concentration there. The IV parameters, and `cl.iv.obs` (the dose divided by `aucivinf.obs`), are calculated. `mrt.iv.obs` and `vss.iv.obs` are calculated from `aucinf.obs` and `aumcinf.obs`, so they are `NA` for these data.
+
+The other IV parameters (`aucivint.*`, `aucivinf.pred`, and their AUMC equivalents) are calculated from the mean profile, without a standard error. For IV bolus dosing in general, see [Intravascular Dosing](intravascular.qmd).
+
+---
+
+## Practical recommendations {#practical-recommendations}
+
+The vignette's simulation study (one- and two-compartment models, oral and IV bolus dosing, serial-sacrifice and batch designs, with and without BLQ samples, and fast and slow elimination) supports these recommendations; see [Summary and recommendations](https://humanpred.github.io/pknca/articles/v24-sparse-auc-to-infinity.html#summary-and-recommendations) in the vignette for the numbers.
+
+- **Use the delta-method standard error for the AUC to infinity (the default).** When little of the AUC is extrapolated, Yuan's standard error and the delta method both cover close to the nominal 95%. When about a fifth is extrapolated, Yuan's intervals are too narrow, and the delta method is closer to nominal, though still a few points short.
+- **Give the AUC a concentration at time 0.** Without one, the sparse AUC is `NA`. After an extravascular dose, impute zero with `impute = "start_conc0"`; after an IV bolus, request the IV parameters.
+- **Treat the AUMC, and the MRT and Vss calculated from it, with caution.** The AUMC to infinity was biased low in most scenarios, and its confidence intervals under-covered in every scenario, even with the delta method, most when elimination was slow.
+- **The half-life of the mean profile is not the typical animal's half-life.** It was too long when the terminal phase was well sampled and too short when the profile was cut short by BLQ samples or by a two-compartment distribution. Sample long enough to see at least three terminal half-lives.
+- **Cmax of the mean profile reads high with few animals per timepoint**, because it is the maximum of noisy means near a broad peak.
+- **The bootstrap gives intervals for any parameter, but they are too narrow with few animals per timepoint.** With three or four animals per timepoint, prefer the analytical standard errors for the AUCs, and use `sparse_bootstrap()` for parameters and comparisons that have none, such as Cmax and ratios between groups. With about 20 or more animals per timepoint, the bootstrap standard error was accurate and its intervals matched the delta method's.
+- **With many animals, the bias of the sparse estimate dominates.** BLQ samples counted as zero in the late means, and the extrapolation of a mean of animals with different elimination rates, biased the AUC to infinity low whatever the number of animals and whichever half-life was used, so with many animals every confidence interval missed the truth more often than its nominal level.
+- **Geometric-mean profiles were evaluated and not adopted.** They were similarly accurate and as precise or modestly more precise, but they estimate a different quantity (the typical animal rather than the population mean curve), need a rule for BLQ samples that drives their results, and fall outside the variance methods for sparse AUCs, which are for arithmetic means.
+- **The Tobit half-life was evaluated with BLQ samples and not adopted for the sparse AUC.** The Tobit fit of the mean profile gave nearly the same AUC to infinity as the log-linear fit and has no delta-method standard error. A (mixed-effects) Tobit fit of the individual samples was slightly less biased and more precise, but adding its variance to Yuan's covered less well than the delta method with slow elimination, and neither Tobit fit removed the bias that BLQ samples cause.
+
+### Bootstrap and the delta method on the same data
+
+`sparse_bootstrap()` refits λz in every replicate, so it includes the uncertainty of λz too (see [Bootstrap for any parameter](sparse.qmd#bootstrap-for-any-parameter)). Its default is `n_boot = 200` replicates; this example uses 50 to render quickly, so its standard error is itself imprecise:
+
+```{r}
+o_nca_boot <- pk.nca(PKNCAdata(
+  sparse_bootstrap(o_conc, n_boot = 50, seed = 20261012), o_dose,
+  intervals = data.frame(start = 0, end = Inf, aucinf.obs = TRUE),
+  impute = "start_conc0", options = list(progress = FALSE)
+))
+d_boot <- as.data.frame(o_nca_boot) |>
+  filter(bootstrap != "original", PPTESTCD == "aucinf.obs")
+
+data.frame(
+  method = c("Yuan", "delta", "bootstrap (50 replicates)"),
+  aucinf.obs_se = c(compare_value("aucinf.obs_se", "yuan"),
+                    compare_value("aucinf.obs_se", "delta"),
+                    signif(sd(d_boot$PPORRES), 3))
+)
+```
+
+With 4 animals per timepoint, resampling understates the variance of each mean by the factor 3/4, which is part of why the bootstrap intervals were too narrow in the simulation.
+
+---
+
+## References
+
+Bailer AJ. Testing for the equality of area under the curves when using destructive measurement techniques. *J Pharmacokinet Biopharm*. 1988;16(3):303-309.
+
+Holder DJ. Comments on Nedelman and Jia's extension of Satterthwaite's approximation applied to pharmacokinetics. *J Biopharm Stat*. 2001;11(1-2):75-79.
+
+Jaki T, Wolfsegger MJ. Estimation of pharmacokinetic parameters with the R package PK. *Pharm Stat*. 2011;10(3):284-288.
+
+Jaki T, Wolfsegger MJ. Non-compartmental estimation of pharmacokinetic parameters for flexible sampling designs. *Stat Med*. 2012;31(11-12):1059-1073.
+
+Nedelman JR, Gibiansky E, Lau DTW. Applying Bailer's method for AUC confidence intervals to sparse sampling. *Pharm Res*. 1995;12(1):124-128.
+
+Nedelman JR, Jia X. An extension of Satterthwaite's approximation applied to pharmacokinetics. *J Biopharm Stat*. 1998;8(2):317-328.
+
+Shen M, Machado SG. Bioequivalence evaluation of sparse sampling pharmacokinetics data using bootstrap resampling method. *J Biopharm Stat*. 2017;27(2):257-264.
+
+Wolfsegger MJ, Jaki T. Estimation of AUC from 0 to infinity in serial sacrifice designs. *J Pharmacokinet Pharmacodyn*. 2005;32(5-6):757-766.
+
+Wolfsegger MJ, Jaki T. Non-compartmental estimation of pharmacokinetic parameters in serial sampling designs. *J Pharmacokinet Pharmacodyn*. 2009;36(5):479-494.
+
+Yuan J. Estimation of variance for AUC in animal studies. *J Pharm Sci*. 1993;82(7):761-763.
+
+---
+
+::: {.callout-note icon=false appearance="minimal"}
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [summary.PKNCAresults()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [pk.calc.aucinf.obs_sparse()](https://humanpred.github.io/pknca/reference/pk.calc.aucinf.obs_sparse.html) · [pk.calc.aumcinf.obs_sparse()](https://humanpred.github.io/pknca/reference/pk.calc.aucinf.obs_sparse.html) · [pk.calc.aucivinf.obs_sparse()](https://humanpred.github.io/pknca/reference/pk.calc.aucivlast_sparse.html) · [pk.calc.c0()](https://humanpred.github.io/pknca/reference/pk.calc.c0.html) · [sparse_bootstrap()](https://humanpred.github.io/pknca/reference/sparse_bootstrap.html)
+:::
