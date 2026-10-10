@@ -18,7 +18,9 @@ After `pk.nca()` you may need to:
 3. **Normalize** parameters by dose (built-in `.dn` variants)
 4. **Summarize** with custom statistics, respecting exclusions
 5. **Report** with the `business.*` summary helper functions
-6. **Inspect** which concentrations each λz regression used
+6. **Inspect** which concentrations each λz regression used, and the fitted line
+
+Data-quality checks that run before or alongside exclusion (missing samples, Tmax coverage, input validation) are covered in the [Data Quality Checks chapter](data-quality.qmd).
 
 Most of this operates on the `PKNCAresults` object without rerunning the analysis (requesting `.dn` parameters is the exception — they are computed by `pk.nca()`). The package's own [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html) walks the same workflow.
 
@@ -95,6 +97,8 @@ as.data.frame(o_nca_excl) |>
   select(subject, PPTESTCD, PPORRES, exclude)
 ```
 
+The function given as `FUN` (next section) is called once per group of results and must return either one value or one value per result row of the group; anything else is the `pknca_error_exclude_fun_length` error (≥ 0.13.0). A warning that the function signals reaches the caller with its class and fields intact (≥ 0.13.0), so it can be caught with `withCallingHandlers()`.
+
 ### Rule-based exclusion functions
 
 PKNCA provides ready-made rule functions to pass to `exclude(FUN=...)`. Unlike a manual `mask`, rule-based exclusion propagates: each rule excludes the parameters it affects (for the half-life rules, the whole λz family) *and* the parameters that depend on them, such as `aucinf.obs` and `aucpext.obs`. The built-in rules also supply their own reason text, which overrides the `reason` argument in the `exclude` column.
@@ -108,7 +112,10 @@ PKNCA provides ready-made rule functions to pass to `exclude(FUN=...)`. Unlike a
 | `exclude_nca_tmax_0()` | Tmax at or before 0 (shortcut for `exclude_nca_tmax_early(0)`) |
 | `exclude_nca_tmax_early(tmax_early = 0)` | Tmax at or before a threshold time (`tmax_early`, default 0) |
 | `exclude_nca_count_conc_measured(min_count, exclude_param_pattern = ...)` | fewer than `min_count` measured concentrations; excludes the AUC-family parameters matching `exclude_param_pattern` |
-| `exclude_nca_by_param(parameter, min_thr = NULL, max_thr = NULL, affected_parameters = parameter)` (≥ 0.12.2) | the value of `parameter` falls outside `[min_thr, max_thr]`; excludes `affected_parameters` (default: `parameter` itself) |
+| `exclude_nca_by_param(parameter, min_thr = NULL, max_thr = NULL, affected_parameters = parameter)` (≥ 0.12.1) | the value of `parameter` falls outside `[min_thr, max_thr]`; excludes `affected_parameters` (default: `parameter` itself) |
+| `exclude_nca_tmax_coverage(min_subjects = 4, k_warn = 1.5, k_exclude = 3)` (≥ 0.13.0) | the subject has no sample within Tukey's outer fences around its group's Tmax values; excludes every result of the interval (subjects outside only the inner fences get a warning) |
+
+`pknca_exclude_rules()` (≥ 0.13.0) lists these rules with their arguments, defaults, the options they use, and the parameters each can exclude. The Tmax-coverage rule and the rule listing are demonstrated in the [Data Quality Checks chapter](data-quality.qmd).
 
 ```{r}
 # Exclude half-lives where span ratio < 2
@@ -173,7 +180,7 @@ data.frame(
 ) |> knitr::kable()
 ```
 
-Each `.dn` parameter is computed as `parameter / dose` where `dose` is the dose from the `PKNCAdose` object for that interval. In PKNCA ≥ 0.12.2 this includes renal clearance variants (`clr.last.dn`, `clr.obs.dn`, `clr.pred.dn`).
+Each `.dn` parameter is computed as `parameter / dose` where `dose` is the dose from the `PKNCAdose` object for that interval. In PKNCA ≥ 0.13.0 this includes renal clearance variants (`clr.last.dn`, `clr.obs.dn`, `clr.pred.dn`).
 
 Request the `.dn` variants in the interval like any other parameter:
 
@@ -205,9 +212,9 @@ as.data.frame(o_nca_dn) |>
   arrange(subject)
 ```
 
-### Custom normalization with `normalize()` (≥ 0.12.2)
+### Custom normalization with `normalize()` (≥ 0.13.0)
 
-For normalization by columns other than dose (e.g. body weight, body surface area), PKNCA 0.12.2 adds `normalize()`. You supply a `norm_table` data frame containing the grouping columns, a `normalization` value, and a `unit` for each group:
+For normalization by columns other than dose (e.g. body weight, body surface area), PKNCA 0.13.0 adds `normalize()`. You supply a `norm_table` data frame containing the grouping columns, a `normalization` value, and a `unit` for each group. With grouped data, every group of the results must be in `norm_table`, so no result rows are dropped silently; with ungrouped data, `norm_table` must have exactly one row.
 
 ```{r}
 # Normalize AUClast and Cmax by body weight
@@ -232,7 +239,72 @@ df_bw_norm |>
 
 > `normalize()` returns **only** the normalized rows, under new parameter names — `auclast` becomes `auclast.bw`, `cmax` becomes `cmax.bw`. To keep both original and normalized values, bind the normalized rows onto the original results: `bind_rows(df_results, df_bw_norm)`.
 
-`normalize_by_col()` (≥ 0.12.2) is the low-level internal helper that pulls normalization values from a column already present in the `PKNCAconc` data frame, rather than from a separate table.
+`normalize()` also accepts the `PKNCAresults` object itself. It then adds the normalized rows to the results and returns a `PKNCAresults` object holding both the original and the normalized parameters (marked as modified; see the provenance note in the [Regulatory chapter](regulatory.qmd)).
+
+### Normalizing by a column of the concentration data (≥ 0.13.0)
+
+When the normalizing value is already a column of the concentration data, `normalize_by_col()` builds the normalization table from it. It takes a `PKNCAresults` object, the column name, and the unit (a fixed string or the name of a unit column), and returns a `PKNCAresults` object with the normalized parameters added. The Theoph concentration data carry body weight in `Wt`:
+
+```{r}
+o_nca_bw <- normalize_by_col(
+  o_nca,
+  col        = "Wt",
+  unit       = "kg",
+  parameters = c("auclast", "cmax"),
+  suffix     = ".bw"
+)
+
+as.data.frame(o_nca_bw) |>
+  filter(subject %in% c("1", "2"), PPTESTCD %in% c("auclast", "auclast.bw")) |>
+  select(subject, PPTESTCD, PPORRES) |>
+  arrange(subject, PPTESTCD)
+```
+
+Subject 1 weighs 79.6 kg, so its `auclast.bw` is its `auclast` divided by 79.6. The column must have one value per concentration group; a column whose value changes within a group (for example, a weight recorded at several visits within one profile) is the `pknca_error_norm_multiple_values` error.
+
+---
+
+## Filtering and grouping results
+
+dplyr verbs work on `PKNCAresults` objects. `filter()` with expressions that use only group columns (the columns after the `|` in the `PKNCAconc()` formula) keeps the concentration data, dose data, and intervals in `$data` consistent with the remaining results (≥ 0.13.0); filters on other result columns (`PPTESTCD`, `PPORRES`, `exclude`) filter only the result table:
+
+```{r}
+o_nca_12 <- filter(o_nca, subject %in% c("1", "2"))
+nrow(as.data.frame(o_nca_12))
+unique(as.character(o_nca_12$data$conc$data$subject))
+```
+
+`group_vars()` on a `PKNCAresults` object includes the interval `start` and `end` with the group columns (≥ 0.13.0), so code that groups or joins results by `group_vars()` also matches on the interval:
+
+```{r}
+group_vars(o_nca)
+```
+
+A results object changed by `filter()`, `mutate()`, `exclude()`, or `normalize()` no longer passes `checkProvenance()`; see the [Regulatory chapter](regulatory.qmd#provenance-of-results).
+
+---
+
+## Controlling the summary table
+
+`summary()` arguments control which groups and parameters appear and how gaps are shown:
+
+| Argument | Default | Effect |
+|---|---|---|
+| `drop_group` | the subject column | Group columns summarized over (removed from the rows of the table) |
+| `drop_param` | none | Parameters left out of the table |
+| `summarize_n` | `NA` (add `N` when there is a subject column) | Add a column `N` with the number of subjects |
+| `not_requested` | `"."` | Text for a parameter not requested in an interval |
+| `not_calculated` | `"NC"` | Text for a requested parameter whose summary is `NA` |
+
+```{r}
+summary(o_nca, drop_param = c("adj.r.squared", "span.ratio"), summarize_n = FALSE)
+```
+
+When the summary shows the not-calculated text, the caption explains it (≥ 0.13.0). Here, a span-ratio threshold of 20 excludes every half-life, so the λz-dependent parameters are not calculated:
+
+```{r}
+summary(exclude(o_nca, FUN = exclude_nca_span.ratio(20)))
+```
 
 ---
 
@@ -260,6 +332,8 @@ PKNCA.set.summary(
 
 summary(o_nca)
 ```
+
+`PKNCA.set.summary()` also has a `spread_for` argument (≥ 0.13.0) that summarizes one parameter with the spread taken from another parameter's results; PKNCA uses it to show a sparse AUClast as the estimate with its standard error (see the [Sparse NCA chapter](sparse.qmd)). `PKNCA.set.summary(reset = TRUE)` removes every summary instruction and, since that can break `summary()`, warns (≥ 0.13.0); restore individual parameters as below instead.
 
 Restore the defaults — `business.geomean`/`business.geocv` for `auclast` and
 `business.median`/`business.range` for `tmax` (the `business.*` helpers are
@@ -311,6 +385,12 @@ data.frame(
 )
 ```
 
+The `business.*` functions return `NA` for an empty input (≥ 0.13.0), rather than an error, so a summary group with no included values gives `NC` instead of stopping:
+
+```{r}
+business.geomean(numeric(0))
+```
+
 Use these as `point` and `spread` arguments to `PKNCA.set.summary()` — rerunning `summary()` shows the new `cmax` presentation:
 
 ```{r}
@@ -329,7 +409,7 @@ summary(o_nca)
 
 ## Inspecting the terminal regression window
 
-`get_halflife_points()` returns a logical vector aligned with the original concentration data — `TRUE` if that observation was used in the λz regression, `FALSE` if it was available but excluded, `NA` if half-life was not computed for that interval. In PKNCA ≥ 0.12.2 it also accepts a `PKNCAdata` object directly and handles `start ≠ 0` intervals correctly. For how PKNCA selects the regression points, see the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
+`get_halflife_points()` returns a logical vector aligned with the original concentration data — `TRUE` if that observation was used in the λz regression, `FALSE` if it was available but excluded, `NA` if half-life was not computed for that interval. In PKNCA ≥ 0.13.0 it also accepts a `PKNCAdata` object directly, handles `start ≠ 0` intervals correctly, and sets points outside any interval to `NA`. For how PKNCA selects the regression points, see the [Half-Life Calculation vignette](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html).
 
 Because the example analysis requested `half.life`, `o_nca` already carries the λz fits:
 
@@ -340,8 +420,16 @@ table(hl_used, useNA = "always")
 ```
 
 ```{r}
-# >= 0.12.2: a PKNCAdata object is accepted directly (no need to run pk.nca first)
+# >= 0.13.0: a PKNCAdata object is accepted directly (no need to run pk.nca first)
 head(get_halflife_points(o_data))
+```
+
+`get_halflife_fit()` (≥ 0.13.0) returns the fitted terminal line of each interval (intercept and slope on the natural-log scale, and the first and last times used), and `get_halflife_curve()` (≥ 0.13.0) returns predicted concentrations along it, by default `n = 50` points from the first time used, extrapolated to the end of the interval's data (`extrapolate_later = TRUE`):
+
+```{r}
+get_halflife_fit(o_nca) |> filter(subject == "1")
+d_hl_curve <- get_halflife_curve(o_nca)
+head(d_hl_curve |> filter(subject == "1"), 3)
 ```
 
 ```{r}
@@ -351,12 +439,14 @@ subj1_conc <- d_conc_annotated |> filter(subject == "1")
 
 ggplot(subj1_conc, aes(x = time, y = conc, colour = in_lambda_z)) +
   geom_line(colour = "grey70") +
+  geom_line(data = d_hl_curve |> filter(subject == "1"), colour = "firebrick",
+            linetype = "dashed") +
   geom_point(size = 3) +
   scale_colour_manual(values = c("FALSE" = "grey50", "TRUE" = "firebrick"),
                       labels = c("not used", "used in lambda.z"), name = NULL,
                       na.value = "grey80") +
   scale_y_log10() +
-  labs(title = "Subject 1 - points used in lambda.z regression (red)",
+  labs(title = "Subject 1 - points used in lambda.z regression (red) and fitted line",
        x = "Time (h)", y = "Concentration (mg/L) [log scale]") +
   theme_minimal()
 ```
@@ -370,5 +460,5 @@ Imputation is a pre-calculation step, not a post-processing step. It is specifie
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_*()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [exclude_nca_by_param()](https://humanpred.github.io/pknca/reference/exclude_nca_by_param.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [normalize()](https://humanpred.github.io/pknca/reference/normalize.html) · [normalize_by_col()](https://humanpred.github.io/pknca/reference/normalize_by_col.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [business.*()](https://humanpred.github.io/pknca/reference/business.mean.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_*()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [exclude_nca_by_param()](https://humanpred.github.io/pknca/reference/exclude_nca_by_param.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [normalize()](https://humanpred.github.io/pknca/reference/normalize.html) · [normalize_by_col()](https://humanpred.github.io/pknca/reference/normalize_by_col.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [business.*()](https://humanpred.github.io/pknca/reference/business.mean.html) · [get_halflife_points()](https://humanpred.github.io/pknca/reference/get_halflife_points.html) · [get_halflife_fit()](https://humanpred.github.io/pknca/reference/get_halflife_fit.html) · [get_halflife_curve()](https://humanpred.github.io/pknca/reference/get_halflife_curve.html) · [exclude_nca_tmax_coverage()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [pknca_exclude_rules()](https://humanpred.github.io/pknca/reference/pknca_exclude_rules.html) · [filter()](https://humanpred.github.io/pknca/reference/filter.PKNCAresults.html) · [checkProvenance()](https://humanpred.github.io/pknca/reference/checkProvenance.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

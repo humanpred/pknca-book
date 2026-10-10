@@ -1,0 +1,235 @@
+---
+title: "Date-Time Data and Time References"
+---
+
+```{r setup, include=FALSE}
+library(PKNCA)
+library(dplyr)
+conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
+```
+
+Clinical data usually record sample and dose times as dates and clock times (SDTM `PCDTC` and `EXSTDTC`), not as hours since the first dose. Starting with PKNCA 0.13.0, concentration and dose times may be date-times (`POSIXct`) or dates (`Date`), and PKNCA does the conversion to elapsed time itself (≥ 0.13.0):
+
+- `PKNCAconc()`, `PKNCAdose()`, and `PKNCAdata()` keep the date-times as they are.
+- `pk.nca()` converts them to numeric time relative to a **time reference** for each group: the first included dose, or the first concentration when a group has no dose.
+- The numeric time is in the analysis time unit: `timeu_pref` of `PKNCAconc()` when given, otherwise `timeu`, otherwise hours.
+- The results keep the reference of each group, and the CDISC output reports each row's reference date-time (`PPRFTDTC`) and its interval relative to the dose that starts it (`PPSTINT`, `PPENINT`, `PPTPTREF`).
+
+The rest of the CDISC output (parameter codes, `PPANMETH`, `PPGRPID`) is covered in the [Regulatory and CDISC Context chapter](regulatory.qmd), and units in the [Units Assignment and Conversion chapter](units.qmd).
+
+---
+
+## Single-dose example with date-times
+
+The Theoph study recorded times as hours after the dose. To show date-time input, each subject is given a dose at 08:00 on a different day, and the sample times are built from it:
+
+```{r}
+d_conc <- as.data.frame(Theoph) |>
+  mutate(
+    Subject = as.integer(as.character(Subject)),
+    dose_dtc = as.POSIXct("2026-03-02 08:00", tz = "UTC") + as.difftime(Subject - 1, units = "days"),
+    conc_dtc = dose_dtc + as.difftime(Time, units = "hours")
+  )
+d_dose <- d_conc |>
+  group_by(Subject) |>
+  summarise(dose = Dose[1] * Wt[1], dose_dtc = dose_dtc[1], .groups = "drop")
+
+head(d_conc |> select(Subject, Time, conc_dtc, conc), 4)
+head(d_dose, 3)
+```
+
+The date-time columns are used in the formulas exactly as numeric times would be:
+
+```{r}
+o_conc <- PKNCAconc(d_conc, conc ~ conc_dtc | Subject, concu = "mg/L", timeu = "hr")
+o_dose <- PKNCAdose(d_dose, dose ~ dose_dtc | Subject, doseu = "mg")
+o_data <- PKNCAdata(o_conc, o_dose)
+o_nca <- pk.nca(o_data)
+```
+
+`PKNCAdata()` generated the intervals in the usual way (see the [Automatic Intervals and Dosing Regimens chapter](auto-intervals.qmd)). The results carry the converted data that `pk.nca()` used, with the time reference of each group in `o_nca$data$time_reference`:
+
+```{r}
+head(o_nca$data$time_reference, 3)
+```
+
+The `time_reference_type` column says whether each reference is the `"first_dose"` or the `"first_conc"`. In the converted concentration data, the date-time column now holds hours since the reference, and the results are identical to an analysis of the numeric `Time` column:
+
+```{r}
+head(o_nca$data$conc$data |> select(Subject, conc_dtc, Time, conc), 4)
+
+as.data.frame(o_nca) |>
+  filter(Subject == 1, PPTESTCD %in% c("cmax", "tmax", "auclast")) |>
+  select(Subject, start, end, PPTESTCD, PPORRES, PPORRESU)
+```
+
+---
+
+## How the time reference is chosen
+
+- **First dose within the shared groups.** The reference is the first included (not excluded) dose within each combination of the grouping variables shared by the concentration and dose formulas. With `dose ~ time | Part + Subject`, each subject's first dose in each study part (or period, for a crossover) is time 0; with `dose ~ time | Subject`, each subject's first dose of the study is time 0. The dose formula must include the subject for dense data, so that one reference is never shared by several subjects.
+- **No dose: first concentration.** A subject without an included dose time uses its first included concentration as the reference, with the `pknca_warning_datetime_first_conc_reference` warning. Without any dosing data, every reference is the first concentration (within each combination of the concentration grouping variables to the left of any `/`, so analytes share their subject's reference), without a warning.
+- **Sparse data** use one reference per group, because every subject in a sparse group shares the group's dosing.
+- **Dates** (`Date`) are taken as 08:00 on that date, with the `pknca_warning_date_assumed_time` warning.
+
+The warning for a subject without a dose looks like this (subject 3's dose row is removed):
+
+```{r}
+o_nca_no_dose_3 <- pk.nca(PKNCAdata(
+  PKNCAconc(d_conc, conc ~ conc_dtc | Subject),
+  PKNCAdose(d_dose |> filter(Subject != 3), dose ~ dose_dtc | Subject),
+  intervals = data.frame(start = 0, end = 24, cmax = TRUE)
+))
+o_nca_no_dose_3$data$time_reference |> filter(Subject %in% 2:4)
+```
+
+The warning is expected here: subject 3's times are now relative to its first sample rather than to a dose, and its `time_reference_type` is `"first_conc"`.
+
+### Inputs that are errors
+
+Concentration and dose times must both be numeric or both date-times, and date-times must share one time zone (UTC offset):
+
+```{r}
+tryCatch(
+  PKNCAdata(o_conc, PKNCAdose(d_dose |> mutate(time = 0), dose ~ time | Subject)),
+  error = function(e) conditionMessage(e)
+)
+```
+
+Time differences are elapsed time, so a change to or from daylight saving time is handled correctly when the time zone is a named zone (such as `"America/New_York"`) rather than a fixed offset. A dose given at 08:00 every day across the spring change is 23 elapsed hours after the previous one, which is what PKNCA uses.
+
+---
+
+## The analysis time unit
+
+Date-times have no unit of their own, so `pk.nca()` converts them directly into the analysis time unit: `timeu_pref` when it is given to `PKNCAconc()`, otherwise `timeu`, otherwise hours. Numeric durations (such as a urine collection `duration`) are taken to be in that unit, and `difftime` durations are converted to it.
+
+With `timeu_pref = "day"`, the converted times, the intervals, and every time-based result are in days, and `PPORRES` is already in days:
+
+```{r}
+o_conc_day <- PKNCAconc(d_conc, conc ~ conc_dtc | Subject,
+                        concu = "mg/L", timeu = "hr", timeu_pref = "day")
+o_nca_day <- pk.nca(PKNCAdata(
+  o_conc_day, o_dose,
+  intervals = data.frame(start = 0, end = 1, cmax = TRUE, tmax = TRUE, auclast = TRUE)
+))
+as.data.frame(o_nca_day) |>
+  filter(Subject == 1) |>
+  select(start, end, PPTESTCD, PPORRES, PPORRESU)
+```
+
+This differs from numeric input. With numeric times, the times are already in `timeu`, so the results are calculated in `timeu` and `timeu_pref` converts them afterward into `PPSTRES`/`PPSTRESU` (see the [Units chapter](units.qmd)).
+
+`pknca_difftime_to_unit()` (≥ 0.13.0) is the conversion that `pk.nca()` applies, exported for preparing data yourself, for example a collection duration computed as the difference of two date-times:
+
+```{r}
+collection_start <- as.POSIXct("2026-03-02 08:00", tz = "UTC")
+collection_end <- as.POSIXct("2026-03-02 20:30", tz = "UTC")
+pknca_difftime_to_unit(collection_end - collection_start, unit = "hr")
+pknca_difftime_to_unit(as.difftime(36, units = "hours"), unit = "day")
+```
+
+It accepts only a `difftime` (`pknca_error_difftime_not_difftime` otherwise, since a plain number has no unit to convert from); give a number its unit first with `as.difftime()`. Hours need no conversion; any other unit needs the units package.
+
+---
+
+## Multiple-dose example
+
+The remaining sections use a small multiple-dose study: two subjects receive 100 mg once daily for 5 days, subject 1 at 08:00 and subject 2 at 09:00, with intensive sampling after the first and fifth doses. The concentrations come from a one-compartment model with first-order absorption, summed over the doses.
+
+```{r}
+first_dose <- as.POSIXct("2026-03-02 08:00", tz = "UTC")
+d_dose_md <- expand.grid(Subject = 1:2, day = 0:4) |>
+  mutate(dose = 100,
+         dose_dtc = first_dose + as.difftime(day, units = "days") +
+           as.difftime(Subject - 1, units = "hours")) |>
+  select(Subject, dose, dose_dtc) |>
+  arrange(Subject, dose_dtc)
+
+profile_hours <- c(0, 0.5, 1, 2, 4, 8, 12, 24)
+dose_hours <- c(0, 24, 48, 72, 96)
+d_conc_md <- expand.grid(Subject = 1:2, hours = c(profile_hours, 96 + profile_hours)) |>
+  mutate(
+    conc_dtc = first_dose + as.difftime(hours + Subject - 1, units = "hours"),
+    conc = round(sapply(hours, function(t) {
+      t_dose <- t - dose_hours[dose_hours <= t]
+      sum(10 * (exp(-0.1 * t_dose) - exp(-1.5 * t_dose)))
+    }), 3)
+  ) |>
+  select(Subject, conc_dtc, conc) |>
+  arrange(Subject, conc_dtc)
+
+o_conc_md <- PKNCAconc(d_conc_md, conc ~ conc_dtc | Subject, concu = "ng/mL", timeu = "hr")
+o_dose_md <- PKNCAdose(d_dose_md, dose ~ dose_dtc | Subject, doseu = "mg")
+```
+
+---
+
+## Intervals given as date-times (≥ 0.13.0)
+
+With date-time data (see also the date-time section of the [Interval Selection and Parameter Catalog chapter](intervals.qmd)), manually specified intervals may be numeric times relative to the time reference (in the analysis time unit) or date-times. A date-time interval is converted relative to the reference of the group it applies to, when `pk.nca()` runs. Here each subject's interval is its fifth dosing interval, given by clock time:
+
+```{r}
+d_intervals_dtc <- data.frame(
+  Subject = 1:2,
+  start = d_dose_md$dose_dtc[c(5, 10)],
+  end = d_dose_md$dose_dtc[c(5, 10)] + as.difftime(24, units = "hours"),
+  cmax = TRUE, auclast = TRUE
+)
+d_intervals_dtc[, c("Subject", "start", "end")]
+
+o_nca_dtc <- pk.nca(PKNCAdata(o_conc_md, o_dose_md, intervals = d_intervals_dtc))
+o_nca_dtc$data$intervals |> select(Subject, start, end, interval_time_kind)
+```
+
+Both windows convert to 96 to 120 hours, and the converted intervals are marked `interval_time_kind = "datetime"` (numeric rows added later are `"relative"`).
+
+A row that does not name every reference group (here, a row without `Subject`) applies to every matching group and becomes one row per group, because one clock-time window is a different relative window for each subject. An `end` of `Inf` stays infinite:
+
+```{r}
+o_nca_shared <- pk.nca(PKNCAdata(
+  o_conc_md, o_dose_md,
+  intervals = data.frame(start = as.POSIXct("2026-03-06 09:00", tz = "UTC"), end = Inf, cmax = TRUE)
+))
+o_nca_shared$data$intervals |> select(Subject, start, end, interval_time_kind)
+```
+
+The 09:00 window starts at subject 2's fifth dose (96 hours) but one hour after subject 1's (97 hours). The conversion gives only the window: a window that starts before a subject's first measurement still needs an imputation rule (`impute`; see the [Concentration Imputation chapter](imputation.qmd)) for a concentration at its start. Date-time bounds mixed with finite numeric bounds, an infinite start, date-time intervals for numeric data, and a different time zone are errors, checked by `PKNCAdata()` and `set_intervals()` (through `assert_intervals()`).
+
+---
+
+## Time references in CDISC output (≥ 0.13.0)
+
+`as.data.frame(out_format = "cdisc")` gives every result row its time point reference as SDTMIG 3.4 defines it:
+
+| Column | Content |
+|---|---|
+| `PPTPTREF` | The reference: `"LAST DOSE PRIOR TO INTERVAL"` (the last included dose at or before the interval start for that subject and group), or `"FIRST OBSERVATION"` for a subject with no included dose |
+| `PPSTINT` | Interval start as an ISO 8601 duration relative to that reference |
+| `PPENINT` | Interval end as an ISO 8601 duration relative to that reference; `NA` for an interval to infinity |
+| `PPRFTDTC` | The reference's date-time (only when the concentration and dose times were date-times) |
+
+These columns are added for **every** parameter, not only interval-based ones. Three intervals show how they are derived: the first dosing interval, the fifth dosing interval, and an interval from 100 hours to infinity:
+
+```{r}
+o_nca_md <- pk.nca(PKNCAdata(
+  o_conc_md, o_dose_md,
+  intervals = data.frame(start = c(0, 96, 100), end = c(24, 120, Inf), cmax = TRUE)
+))
+as.data.frame(o_nca_md, out_format = "cdisc") |>
+  select(Subject, start, end, PPTESTCD, PPORRES, PPSTINT, PPENINT, PPTPTREF, PPRFTDTC)
+```
+
+- The steady-state interval (96 to 120 hours) reads `"PT0H"` to `"PT24H"`, relative to the fifth dose, and its `PPRFTDTC` is that dose's date-time. `PPRFTDTC` therefore differs between the intervals of one subject.
+- The interval starting at 100 hours is relative to the last dose before it (the dose at 96 hours), so it reads `"PT4H"`, and its `PPENINT` is `NA` because it ends at infinity.
+- The `start` and `end` columns stay relative to the subject's first dose.
+
+The durations are in the preferred time unit (`timeu_pref`) when it is given, otherwise in `timeu`; with `timeu_pref = "day"` the first interval reads `"P0D"` to `"P1D"`. Durations are never in scientific notation, and an interval starting before its reference (possible with a first-observation reference) has a negative duration such as `"-PT0.5H"`. `PPSTINT`, `PPENINT`, and `PPTPTREF` are `NA` when a subject has doses but none at or before the interval start. PKNCA is the source of truth for these columns, so downstream SDTM writers need not recompute them.
+
+With numeric times, the same columns are filled except `PPRFTDTC`, which needs a date-time.
+
+---
+
+::: {.callout-note icon=false appearance="minimal"}
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame.PKNCAresults()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [pknca_difftime_to_unit()](https://humanpred.github.io/pknca/reference/pknca_difftime_to_unit.html) · [set_intervals()](https://humanpred.github.io/pknca/reference/set_intervals.html) · [assert_intervals()](https://humanpred.github.io/pknca/reference/assert_intervals.html)
+:::

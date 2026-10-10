@@ -1,0 +1,292 @@
+---
+title: "Data Quality Checks"
+---
+
+```{r setup, include=FALSE}
+library(PKNCA)
+library(dplyr)
+conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
+```
+
+PKNCA checks data quality at three points in an analysis:
+
+1. **When the objects are built.** `PKNCAconc()`, `PKNCAdose()`, and `PKNCAdata()` stop with a classed error when the input cannot give correct results: duplicated rows, an invalid limit of quantification, or a malformed half-life point-selection column. Applications can run the same checks before building any object with `assert_conc_time()` and `assert_impute_method()`.
+2. **Before calculation.** `pknca_missing_samples()` lists the samples that each subject is missing from the nominal sampling schedule of its group.
+3. **After calculation.** The `exclude_nca_*()` rules flag results that should not be reported; `exclude_nca_tmax_coverage()` flags subjects whose samples miss the usual Tmax of their group, and `pknca_exclude_rules()` lists every rule.
+
+This chapter covers the checks themselves. Applying and summarizing exclusions is covered in the [Post-Processing chapter](postprocessing.qmd) and the package's [Post-Processing vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
+
+---
+
+## Example data
+
+The examples use `datasets::Theoph` with a nominal time column added. The Theoph `Subject` column is an ordered factor whose levels are not in numeric order, so it is converted to integer to keep the listings sorted by subject number.
+
+```{r}
+nominal_times <- c(0, 0.25, 0.5, 1, 2, 3.5, 5, 7, 9, 12, 24)
+d_conc <- as.data.frame(Theoph) |>
+  mutate(Subject = as.integer(as.character(Subject))) |>
+  group_by(Subject) |>
+  mutate(time_nominal = nominal_times[row_number()]) |>
+  ungroup() |>
+  as.data.frame()
+d_dose <- d_conc |>
+  group_by(Subject) |>
+  summarise(dose = Dose[1] * Wt[1], time = 0, .groups = "drop")
+
+head(d_conc[, c("Subject", "Time", "time_nominal", "conc")], 11)
+```
+
+---
+
+## Checks when building PKNCA objects
+
+### Duplicate rows
+
+Two concentration rows for the same group at the same time cannot both be used. `PKNCAconc()` stops with the classed error `pknca_error_duplicate_rows`, and (≥ 0.13.0) the error carries the duplicated row numbers in its `rows` field, so a data-cleaning script can locate them without parsing the message:
+
+```{r}
+d_dup <- rbind(d_conc, d_conc[3, ])
+err <- tryCatch(
+  PKNCAconc(d_dup, conc ~ Time | Subject),
+  pknca_error_duplicate_rows = function(e) e
+)
+conditionMessage(err)
+err$rows
+```
+
+Concentration data do not need to be sorted by time: `pk.nca()` sorts each group's data by time before calculating (≥ 0.13.0; before, unsorted data could stop `pk.nca()` with an error).
+
+### Limit of quantification (≥ 0.13.0)
+
+The `lloq` argument of `PKNCAconc()` (used by the Tobit half-life; see the [Half-Life chapter](halflife.qmd)) is checked when the object is built. Every non-missing value must be numeric, finite, and greater than zero; anything else is the `pknca_error_conc_invalid_lloq` error naming the invalid values:
+
+```{r}
+tryCatch(
+  PKNCAconc(d_conc, conc ~ Time | Subject, lloq = 0),
+  pknca_error_conc_invalid_lloq = function(e) conditionMessage(e)
+)
+```
+
+Missing values are allowed. A column that is entirely `NA` of any class (for example, the logical `NA` column of a file with no LLOQ recorded) is accepted and stored as numeric `NA`:
+
+```{r}
+d_no_lloq <- d_conc |> mutate(lloq = NA)
+o_conc_no_lloq <- PKNCAconc(d_no_lloq, conc ~ Time | Subject, lloq = "lloq")
+class(o_conc_no_lloq$data$lloq)
+```
+
+### Half-life point-selection columns (≥ 0.13.0)
+
+The `exclude_half.life` and `include_half.life` columns of `PKNCAconc()` must be logical (`TRUE`, `FALSE`, or `NA`), and the named column must exist. Before 0.13.0, a character column such as `"yes"`/`"no"` or a misspelled column name was accepted silently and selected nothing; both are now errors:
+
+```{r}
+d_hl <- d_conc |> mutate(hl_exclude = ifelse(Time > 20, "yes", "no"))
+tryCatch(
+  PKNCAconc(d_hl, conc ~ Time | Subject, exclude_half.life = "hl_exclude"),
+  error = function(e) conditionMessage(e)
+)
+```
+
+A single interval also cannot use both `include_half.life` and `exclude_half.life`; `pk.nca()` stops with an error when it reaches such an interval. The [Half-Life chapter](halflife.qmd) covers manual point selection.
+
+### Checking data before building objects (≥ 0.13.0)
+
+Applications that accept user data (Shiny apps, pipelines) can validate it before building PKNCA objects with the exported checkers. `assert_conc_time()` checks one profile's concentrations and times; it returns `NULL` invisibly when they are valid and stops with an informative error otherwise:
+
+```{r}
+assert_conc_time(conc = c(0, 2, 1), time = c(0, 1, 2))
+
+tryCatch(
+  assert_conc_time(conc = c(0, 2, 1), time = c(0, 2, 1)),
+  error = function(e) conditionMessage(e)
+)
+
+# Unsorted times are accepted when sorting is not required
+assert_conc_time(conc = c(0, 2, 1), time = c(0, 2, 1), sorted_time = FALSE)
+```
+
+`assert_impute_method()` resolves an imputation specification the way `PKNCAdata()` and `pk.nca()` do (a string of methods, or the name of a column of the intervals) and checks that every named method exists. It returns the resolved imputation strings invisibly:
+
+```{r}
+assert_impute_method("start_predose,start_conc0")
+
+tryCatch(
+  assert_impute_method("start_predoes"),
+  pknca_error_impute_funs_not_found = function(e) conditionMessage(e)
+)
+
+# A column of the intervals that holds per-interval methods
+d_intervals <- data.frame(start = 0, end = 24, method = "start_conc0")
+print(assert_impute_method("method", intervals = d_intervals))
+```
+
+`PKNCA_impute_fun_list()` gives the imputation function names a specification resolves to, and `pknca_impute_methods()` lists the available methods; both are covered in the [Concentration Imputation chapter](imputation.qmd).
+
+---
+
+## Missing samples from the nominal schedule (≥ 0.13.0)
+
+`pknca_missing_samples()` compares each subject's samples with the nominal sampling schedule of its group and lists the nominal times that have no usable concentration. It needs the `time.nominal` argument of `PKNCAconc()`, and it accepts a `PKNCAconc`, `PKNCAdata`, or `PKNCAresults` object.
+
+To demonstrate, three problems are introduced into the example data: subject 2 has no row at 9 hours, subject 5 has an `NA` concentration at 1 hour, and subject 7's 3.5-hour sample is excluded through the `exclude` column of `PKNCAconc()`:
+
+```{r}
+d_qc <- d_conc |>
+  filter(!(Subject == 2 & time_nominal == 9)) |>
+  mutate(
+    conc = ifelse(Subject == 5 & time_nominal == 1, NA, conc),
+    exclude_reason = ifelse(Subject == 7 & time_nominal == 3.5, "hemolyzed", NA_character_)
+  )
+o_conc_qc <- PKNCAconc(d_qc, conc ~ Time | Subject,
+                       time.nominal = "time_nominal", exclude = "exclude_reason")
+
+pknca_missing_samples(o_conc_qc)
+```
+
+Each missing time has one of three reasons:
+
+| `reason` | Meaning |
+|---|---|
+| `"no row"` | The subject has no row at that nominal time. |
+| `"NA concentration"` | Every row of the subject at that nominal time has an `NA` concentration. |
+| `"excluded"` | The subject has a concentration at that time, but every row with one is excluded (with the `exclude` column of `PKNCAconc()` or with `exclude()`), so the calculations do not use it. |
+
+How the schedule is defined matters when reading the output:
+
+- **The schedule of a group** is every nominal time that has a row in the concentration data of that group, where the group is every grouping variable except the subject (study, treatment, analyte, and so on). A time that no subject has a row for is not part of the schedule. Recording a missed sample as a row with an `NA` concentration keeps the time in the schedule even when every subject missed it.
+- **A BLQ sample (zero concentration) is usable** and is never reported.
+- **Rows with an `NA` nominal time** (unscheduled samples) neither add a time to the schedule nor fill one.
+- **Nominal times must share one origin per subject** (for example, the time since the first dose). When a subject's nominal times restart at each dose while its actual times increase, that group is not reported and a `pknca_warning_missing_samples_nominal_restart` warning names it.
+- **Sparse data** have no per-subject schedule; only existing rows are checked (reasons `"NA concentration"` and `"excluded"`), with a message saying so.
+
+The result is an ordinary data frame with one row per missing sample, sorted by group, subject, and nominal time, and with no rows when nothing is missing, so it can be written straight to a data-review listing.
+
+---
+
+## Tmax coverage (≥ 0.13.0)
+
+A subject with no samples near the time of the peak has a Cmax and Tmax that describe its sampling rather than its pharmacokinetics. `exclude_nca_tmax_coverage()` is an exclusion rule, used with `exclude()` like the other `exclude_nca_*()` rules, that compares each subject's samples with the Tmax values of its summary group using Tukey's fences:
+
+- From the first and third quartiles (Q1, Q3) of the Tmax values of every subject in the group (the subject being judged included), the **inner fences** are Q1 − `k_warn` × IQR and Q3 + `k_warn` × IQR, and the **outer fences** use `k_exclude` instead. The defaults are `k_warn = 1.5` and `k_exclude = 3`. The ranges never start before the interval start.
+- A subject with **no sample within the outer fences** is excluded: every result of that interval gets an exclusion reason giving the outer range and the subject's nearest sample.
+- A subject with a sample within the outer fences but **none within the inner fences** is not excluded, but gets the classed warning `pknca_warning_tmax_coverage_outlier`.
+- With nominal times, a subject with a sample within the inner fences that is **missing some of the group's nominal times within them** gets the classed message `pknca_message_tmax_coverage_partial`, since its Cmax and Tmax may be unreliable.
+
+The group is the summary group of `summary()`: every grouping column except the subject, plus the interval start and end. A sample at the interval start (predose) counts only after an intravascular bolus. With nominal times (`time.nominal` in `PKNCAconc()`), samples and Tmax values are placed by their nominal times; otherwise by their actual times.
+
+### Example
+
+Three subjects are given sampling gaps: subject 12 has no samples from 0.25 through 5 hours (its nearest post-dose sample is at 7 hours), subject 10 has none from 0.25 through 3.5 hours (nearest at 5 hours), and subject 6 is missing only its 1-hour sample.
+
+```{r}
+d_gaps <- d_conc |>
+  filter(
+    !(Subject == 12 & time_nominal > 0 & time_nominal <= 5),
+    !(Subject == 10 & time_nominal > 0 & time_nominal <= 3.5),
+    !(Subject == 6 & time_nominal == 1)
+  )
+o_conc_gaps <- PKNCAconc(d_gaps, conc ~ Time | Subject, time.nominal = "time_nominal")
+o_dose <- PKNCAdose(d_dose, dose ~ time | Subject)
+o_nca_gaps <- pk.nca(PKNCAdata(
+  o_conc_gaps, o_dose,
+  intervals = data.frame(start = 0, end = Inf, cmax = TRUE, tmax = TRUE, auclast = TRUE)
+))
+```
+
+The fences come from the nominal times at which each subject's Tmax was observed:
+
+```{r}
+d_tmax_nominal <- as.data.frame(o_nca_gaps) |>
+  filter(PPTESTCD == "tmax") |>
+  left_join(d_gaps |> select(Subject, Time, time_nominal),
+            by = c("Subject", "PPORRES" = "Time"))
+d_tmax_nominal |> select(Subject, tmax = PPORRES, time_nominal)
+
+q <- quantile(d_tmax_nominal$time_nominal, c(0.25, 0.75))
+iqr <- unname(q[2] - q[1])
+c(inner_upper = unname(q[2]) + 1.5 * iqr, outer_upper = unname(q[2]) + 3 * iqr)
+```
+
+The lower fences are below the interval start, so the inner range is 0 to 4.44 hours and the outer range is 0 to 6.5 hours. Applying the rule:
+
+```{r}
+o_nca_cov <- exclude(o_nca_gaps, FUN = exclude_nca_tmax_coverage())
+```
+
+The output above is the intended result of the rule, not a problem with the example:
+
+- Subject 6 gets the `pknca_message_tmax_coverage_partial` message: it has samples within the inner range but is missing the 1-hour sample.
+- Subject 10 gets the `pknca_warning_tmax_coverage_outlier` warning: its nearest sample (5 hours) is outside the inner range but inside the outer range, so it is flagged for review and kept.
+- Subject 12 has no sample within the outer range (its nearest is at 7 hours), so all of its results are excluded:
+
+```{r}
+as.data.frame(o_nca_cov) |>
+  filter(!is.na(exclude)) |>
+  select(Subject, PPTESTCD, PPORRES, exclude)
+```
+
+Because the exclusion is recorded in the `exclude` column, `summary()` drops subject 12 from every statistic (`n=11`):
+
+```{r}
+summary(o_nca_cov)
+```
+
+### Collecting the flags in a pipeline
+
+The warning and message are classed and carry fields (`group`, `tmax_range`, and `nearest_sample` for the warning; `group`, `tmax_range`, `time_nominal_missing`, and `reason` for the message), so an automated pipeline can collect them into a review table with `withCallingHandlers()` instead of printing them:
+
+```{r}
+flags <- new.env(parent = emptyenv())
+flags$rows <- list()
+o_nca_cov2 <- withCallingHandlers(
+  exclude(o_nca_gaps, FUN = exclude_nca_tmax_coverage()),
+  pknca_warning_tmax_coverage_outlier = function(w) {
+    flags$rows[[length(flags$rows) + 1]] <-
+      data.frame(w$group, flag = "outside inner fences", detail = paste("nearest sample", w$nearest_sample))
+    invokeRestart("muffleWarning")
+  },
+  pknca_message_tmax_coverage_partial = function(m) {
+    flags$rows[[length(flags$rows) + 1]] <-
+      data.frame(m$group, flag = "partial coverage",
+                 detail = paste("missing", paste(m$time_nominal_missing, collapse = ", ")))
+    invokeRestart("muffleMessage")
+  }
+)
+bind_rows(flags$rows)
+```
+
+### Groups that are not checked
+
+- A group with fewer than `min_subjects` subjects with a Tmax (default 4) is not checked, with the `pknca_message_tmax_coverage_few_subjects` message; quartiles of fewer than four values describe the spread poorly.
+- Sparse data have one Tmax per group (from the mean profile), so they are not checked, with the `pknca_message_tmax_coverage_sparse` message.
+- When the nominal times disagree with the interval (for example, nominal times that restart at each dose while the interval is in time since first dose), the group is not checked, with the `pknca_warning_tmax_coverage_no_nominal` warning.
+
+---
+
+## Listing the exclusion rules (≥ 0.13.0)
+
+`pknca_exclude_rules()` lists every registered `exclude_nca_*()` rule with its description, its arguments and their defaults, the `PKNCA.options()` entries it uses, and the parameters it can exclude:
+
+```{r}
+rules <- pknca_exclude_rules()
+rules |> select(rule, description) |> knitr::kable()
+```
+
+The `arguments`, `options`, and `affected_parameters` columns are list columns:
+
+```{r}
+rules$arguments[[which(rules$rule == "exclude_nca_tmax_coverage")]] |> select(argument, default)
+rules$options[[which(rules$rule == "exclude_nca_span.ratio")]]
+span_affected <- rules$affected_parameters[[which(rules$rule == "exclude_nca_span.ratio")]]
+length(span_affected)
+c("lambda.z", "half.life", "aucinf.obs", "cl.obs", "cmax") %in% span_affected
+```
+
+The `affected_parameters` column shows why rule-based exclusion propagates: the span-ratio rule can exclude `r length(span_affected)` parameters, the whole λz family and every parameter calculated from it (`aucinf.obs`, `cl.obs`, and so on), but not parameters such as `cmax` that do not depend on λz. The rules with no default for a required argument (`exclude_nca_by_param()`, `exclude_nca_count_conc_measured()`) have `callable_with_defaults` `FALSE` and `NULL` in the last two columns. The [Post-Processing chapter](postprocessing.qmd) has a table of the rules and examples of chaining them.
+
+---
+
+::: {.callout-note icon=false appearance="minimal"}
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [assert_conc_time()](https://humanpred.github.io/pknca/reference/assert_conc_time.html) · [assert_impute_method()](https://humanpred.github.io/pknca/reference/assert_impute_method.html) · [pknca_missing_samples()](https://humanpred.github.io/pknca/reference/pknca_missing_samples.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_tmax_coverage()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [pknca_exclude_rules()](https://humanpred.github.io/pknca/reference/pknca_exclude_rules.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html)
+:::
