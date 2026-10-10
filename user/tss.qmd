@@ -19,21 +19,21 @@ Both methods work on trough concentrations (Ctrough = pre-dose concentration; th
 
 ## Simulated dataset
 
-We simulate trough concentrations for 6 subjects across 10 dose occasions. Concentrations approach an individual steady-state plateau following a monoexponential rise.
+We simulate trough concentrations for 8 subjects across 10 dose occasions. Each subject's troughs rise monoexponentially toward an individual steady-state plateau, $C_{trough}(n) = C_{ss} (1 - e^{-k n})$. The accumulation rate per dose, $k$, is 0.3 for a typical subject, with 30% between-subject variability, so a typical subject reaches 90% of steady state after about $\ln(10)/0.3 \approx 7.7$ doses. $C_{ss}$ has 20% between-subject variability, and each trough has 5% proportional residual error.
 
 ```{r}
-set.seed(42)
-n_subjects <- 6
+set.seed(6)
+n_subjects <- 8
 n_doses    <- 10
 
 d_tss <- data.frame(
   Subject     = rep(1:n_subjects, each = n_doses),
   dose_number = rep(1:n_doses, n_subjects),
-  ke          = rep(0.1 * exp(rnorm(n_subjects, 0, 0.2)), each = n_doses),
-  Css         = rep(10  * exp(rnorm(n_subjects, 0, 0.3)), each = n_doses)
+  k           = rep(0.3 * exp(rnorm(n_subjects, 0, 0.3)), each = n_doses),
+  Css         = rep(10  * exp(rnorm(n_subjects, 0, 0.2)), each = n_doses)
 )
-d_tss$ctrough <- d_tss$Css * (1 - exp(-d_tss$ke * d_tss$dose_number * 24)) +
-                 rnorm(nrow(d_tss), 0, 0.1)
+d_tss$ctrough <- d_tss$Css * (1 - exp(-d_tss$k * d_tss$dose_number)) *
+                 exp(rnorm(nrow(d_tss), 0, 0.05))
 
 ggplot(d_tss, aes(x = dose_number, y = ctrough, group = Subject, colour = factor(Subject))) +
   geom_line() + geom_point() +
@@ -140,7 +140,20 @@ tss_combined
 | `type` | `c("monoexponential", "stepwise.linear")` | `pk.tss` wrapper | Which method(s) to run — both by default |
 | `tss.fraction` | `0.9` | monoexponential | Fraction of Css that defines "at steady state" |
 | `output` | `c("population","popind","individual","single")` | monoexponential | Which output types to return |
+| `min.points` | `3` | stepwise linear | Fewest dose occasions a linear model is fit to |
+| `level` | `0.95` | stepwise linear | Confidence level for the test of a nonzero slope |
 | `verbose` | `FALSE` | both | Print model fitting details |
+
+## When the models do not fit
+
+Both methods fit models, and the fits can fail when the troughs do not support them. That happens, for example, when the troughs are already flat from the first dose, are very noisy, or come from too few subjects or occasions. The warnings say which estimate is affected:
+
+- `nlme` warnings such as "nlminb() did not converge" or "Singular precision matrix" come from the population models that `pk.tss.monoexponential()` tries: random effects on Ctrough,ss and TSS, on TSS only, or on Ctrough,ss only. The best converged model by AIC is used.
+- `pknca_warning_tss_popind_no_random_effect`: the best population model has no random effect on TSS, so `tss.monoexponential.popind` is `NA`.
+- `pknca_warning_tss_population_no_convergence`: no population model converged, so `tss.monoexponential.population` and `tss.monoexponential.popind` are `NA`.
+- `pknca_warning_tss_stepwise_fit_failed` (≥ 0.13.0): steady state was not found and some stepwise linear fits failed. The warning names the start times that were skipped; before 0.13.0 the `NA` was silent.
+
+The simulated data above rise over several doses, so every model fits without a warning. Treat any of these warnings as a sign to plot the troughs and check that the design can show the approach to steady state.
 
 > **Note:** TSS estimation requires **multiple dose occasions with consistent trough sampling**. It is not applicable to single-dose studies or studies where trough collection was inconsistent.
 
