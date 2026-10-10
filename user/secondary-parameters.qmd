@@ -1,0 +1,613 @@
+---
+title: "Secondary Parameters"
+---
+
+```{r setup, include=FALSE}
+library(PKNCA)
+library(dplyr)
+conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
+```
+
+## What a secondary parameter is (≥ 0.13.0)
+
+Almost every NCA parameter is calculated from the concentrations and doses within one interval of one profile. A few cannot be:
+
+- **Renal clearance** divides the amount excreted into a urine collection by the plasma AUC over the same times. The amount and the AUC come from different profiles (urine and plasma).
+- **Bioavailability** compares the dose-normalized exposure of a test administration with a reference administration (for absolute bioavailability, an IV dose).
+- **Ratios** compare a parameter with the same parameter somewhere else: steady state against the first dose (accumulation), a metabolite against its parent, fed against fasted.
+
+PKNCA calls these **secondary parameters**. Starting with PKNCA 0.13.0 they are calculated in the same `pk.nca()` run as everything else, by linking two intervals of the interval specification. Two terms are used throughout this chapter:
+
+- The **requesting interval** is the intervals row that asks for the parameter. The result is reported there, on that row's groups and times.
+- The **reference interval** is the row that supplies the value from the other profile.
+
+`pknca_parameter_table()` lists which parameters are secondary:
+
+```{r}
+d_params <- pknca_parameter_table()
+d_params |>
+  filter(secondary) |>
+  select(parameter, concept, sample_type, tier) |>
+  knitr::kable(row.names = FALSE)
+```
+
+Secondary parameters are never selected automatically (by the default intervals or by `pknca_interval_table()`), because one interval cannot say what the other profile is. Request them by name, like any other parameter. The package vignette [Secondary Parameters (Renal Clearance, Bioavailability, and Ratios)](https://humanpred.github.io/pknca/articles/v09-secondary-parameters.html) covers the same material with more detail on each mechanism.
+
+---
+
+## Linking intervals by hand
+
+Two columns of the interval specification make the link:
+
+| Column | Meaning |
+|---|---|
+| `interval_id` | A name for this interval, so that another row can point at it. `NA` on rows nothing points at. |
+| `<parameter>_ref` | On the requesting interval, the `interval_id` of the reference interval for `<parameter>` (for example `clr.last_ref`). |
+
+The identifiers may be character strings, factors, or numbers, as long as `interval_id` and every `*_ref` column share one class so that they can be compared.
+
+### Renal clearance from plasma and urine
+
+These data have two subjects, each with a plasma profile and three urine collections. All concentrations are in one data frame, distinguished by the `PCSPEC` (specimen) grouping column. For urine, `time` is the start of each collection, `dur` its duration, `conc` the concentration in the collected urine, and `vol` the collected volume; plasma rows have no volume.
+
+```{r}
+d_plasma <- data.frame(
+  subject = rep(1:2, each = 7),
+  PCSPEC  = "plasma",
+  time    = rep(c(0, 1, 2, 4, 8, 12, 24), 2),
+  conc    = c(0, 4.1, 5.0, 4.2, 2.6, 1.6, 0.4,
+              0, 3.2, 4.4, 3.9, 2.5, 1.5, 0.4),
+  vol     = NA_real_,
+  dur     = 0
+)
+d_urine <- data.frame(
+  subject = rep(1:2, each = 3),
+  PCSPEC  = "urine",
+  time    = rep(c(0, 4, 12), 2),   # collection start
+  dur     = rep(c(4, 8, 12), 2),   # collection duration
+  conc    = c(30, 25, 8, 26, 22, 9),
+  vol     = c(0.30, 0.45, 0.80, 0.35, 0.50, 0.70)
+)
+d_conc <- bind_rows(d_plasma, d_urine)
+d_dose <- data.frame(subject = 1:2, time = 0, dose = 100)
+
+o_conc <- PKNCAconc(d_conc, conc ~ time | PCSPEC + subject,
+                    volume = "vol", duration = "dur")
+o_dose <- PKNCAdose(d_dose, dose ~ time | subject)
+```
+
+The plasma row gets an `interval_id`, and the urine row requests `clr.last` with `clr.last_ref` pointing at it:
+
+```{r}
+d_intervals_linked <- data.frame(
+  PCSPEC       = c("plasma", "urine"),
+  start        = 0,
+  end          = 24,
+  interval_id  = c("plasma_0_24", NA),
+  auclast      = c(TRUE, FALSE),
+  ae           = c(FALSE, TRUE),
+  fe           = c(FALSE, TRUE),
+  clr.last     = c(FALSE, TRUE),
+  clr.last_ref = c(NA, "plasma_0_24")
+)
+d_intervals_linked
+
+o_data_linked <- PKNCAdata(o_conc, o_dose, intervals = d_intervals_linked)
+o_nca_linked  <- pk.nca(o_data_linked)
+
+as.data.frame(o_nca_linked) |>
+  select(PCSPEC, subject, PPTESTCD, PPORRES, PCSPEC_ref) |>
+  as.data.frame()
+```
+
+The numbers can be checked by hand for subject 1. The amount excreted is $30 \times 0.30 + 25 \times 0.45 + 8 \times 0.80 = 26.65$, so `fe` is $26.65 / 100 = 0.2665$, and the renal clearance is the amount excreted divided by the plasma AUClast: $26.65 / 47.75 = 0.558$.
+
+Note where each result is reported. `clr.last` is on the urine row, which requested it, not on the plasma row that supplied the AUC. The `PCSPEC_ref` column (and `subject_ref`; one `<group>_ref` column per grouping column) names the group the reference value came from; it is `NA` on results that took nothing from another interval.
+
+### The reference interval gains what the link needs
+
+`auclast` was requested on the plasma row to make the arithmetic visible, but it did not need to be. A reference interval calculates whatever the link reads from it, the same way any parameter's dependencies are calculated. `as.data.frame(filter_requested = TRUE)` reports only what the interval specification asked for:
+
+```{r}
+d_intervals_implicit <- d_intervals_linked |>
+  mutate(auclast = FALSE, cmax = c(TRUE, FALSE))
+
+o_nca_implicit <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = d_intervals_implicit))
+
+as.data.frame(o_nca_implicit, filter_requested = TRUE) |>
+  select(PCSPEC, subject, PPTESTCD, PPORRES) |>
+  as.data.frame()
+```
+
+The plasma `auclast` was still calculated (it is in `as.data.frame(o_nca_implicit)`), and `clr.last` is unchanged.
+
+---
+
+## Letting PKNCA find the reference for renal clearance
+
+For renal clearance, the pointer is usually unnecessary. When a secondary parameter is requested with no pointer and cannot be calculated within its own interval, `pk.nca()` derives the reference from the data. Here the interval specification mentions only the urine collections:
+
+```{r}
+d_intervals_urine <- data.frame(
+  PCSPEC   = "urine",
+  start    = 0,
+  end      = 24,
+  ae       = TRUE,
+  clr.last = TRUE,
+  clr.obs  = TRUE
+)
+
+o_nca_auto <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = d_intervals_urine))
+
+as.data.frame(o_nca_auto, filter_requested = TRUE) |>
+  select(PCSPEC, subject, PPTESTCD, PPORRES, PCSPEC_ref) |>
+  as.data.frame()
+
+# The intervals stored with the results are the ones that went in
+o_nca_auto$data$intervals$PCSPEC
+```
+
+Each derived link is reported with a `pknca_message_secondary_ref_created` message (above) and named in the `PPANMETH` column of the result. The `clr.last` values are the same as with the hand-written link.
+
+The derivation is mechanical: renal clearance is measured over an interval collection while everything it references is a spot sample, and the concentration data declare a collection `volume`, so the reference is looked for among the profiles that have no collection volume. Of those, each interval takes the profile that differs from its own groups in the fewest columns (here, the plasma profile of the same subject). The derived interval is used only for the calculation; the intervals stored with the results still hold only the urine row that went in (last line above).
+
+This automatic derivation applies to renal clearance. Bioavailability and the `ratio.*` parameters have no way to tell from the data which profile is the reference, so they need `group_ref`, a `*_ref` pointer, or `interval_add_secondary()` (shown below); requesting one with none of these is an error that names those three options.
+
+### When more than one profile could be the reference
+
+With a second spot-sample specimen (serum as well as plasma), no single profile is nearest. PKNCA does not guess and does not stop the analysis: the affected results are `NA`, the reason is in the `exclude` column, and one `pknca_warning_secondary_auto_reference` warning is raised per parameter:
+
+```{r}
+d_serum <- d_plasma |>
+  mutate(PCSPEC = "serum", conc = round(conc * 1.1, 2))
+d_conc_3 <- bind_rows(d_plasma, d_serum, d_urine)
+o_conc_3 <- PKNCAconc(d_conc_3, conc ~ time | PCSPEC + subject,
+                      volume = "vol", duration = "dur")
+
+d_intervals_3 <- data.frame(
+  PCSPEC   = c("plasma", "serum", "urine"),
+  start    = 0,
+  end      = 24,
+  auclast  = c(TRUE, TRUE, FALSE),
+  ae       = c(FALSE, FALSE, TRUE),
+  clr.last = c(FALSE, FALSE, TRUE)
+)
+
+o_nca_ambiguous <- pk.nca(PKNCAdata(o_conc_3, o_dose, intervals = d_intervals_3))
+
+as.data.frame(o_nca_ambiguous) |>
+  filter(PPTESTCD == "clr.last") |>
+  select(PCSPEC, subject, PPTESTCD, PPORRES, exclude) |>
+  as.data.frame()
+```
+
+The warning is the intended signal that the analysis needs to say which specimen is the reference; everything else (the AUCs and `ae`) was calculated.
+
+### Steering the choice with `group_ref`
+
+`PKNCAdata(group_ref = )` is a data frame of group values saying which profiles may be references. It settles the ambiguity above:
+
+```{r}
+o_data_steered <- PKNCAdata(
+  o_conc_3, o_dose,
+  intervals = d_intervals_3,
+  group_ref = data.frame(PCSPEC = "plasma")
+)
+o_data_steered
+
+as.data.frame(pk.nca(o_data_steered)) |>
+  filter(PPTESTCD == "clr.last") |>
+  select(PCSPEC, subject, PPTESTCD, PPORRES, PCSPEC_ref) |>
+  as.data.frame()
+```
+
+`group_ref` also supplies the reference for parameters that cannot be derived at all, such as bioavailability and metabolite ratios (both shown below). A plain data frame applies to every secondary parameter. When one analysis needs different steering per parameter (renal clearance by specimen and a metabolite ratio by analyte), add a `parameter` column, where the columns a row leaves `NA` do not constrain that parameter, or give a named list of data frames, one per parameter; see `?PKNCAdata` and the [group_ref section of the vignette](https://humanpred.github.io/pknca/articles/v09-secondary-parameters.html#steering-the-choice-with-group_ref).
+
+---
+
+## Writing the linkage with `interval_add_secondary()`
+
+`interval_add_secondary()` writes the linkage into the interval specification, where it can be seen, edited, and saved. Given a parameter and a data frame describing the reference interval (`reference`; its columns are `start`, `end`, and grouping columns of the intervals), it requests the parameter on the other intervals, gives the reference interval an `interval_id`, and adds the `<parameter>_ref` pointer.
+
+It returns the intervals after `check.interval.specification()`, which adds a column for every registered parameter, so the examples here show only the columns that are not all `FALSE`:
+
+```{r}
+show_set_columns <- function(intervals) {
+  keep <- vapply(intervals, function(x) !is.logical(x) || any(x, na.rm = TRUE), logical(1))
+  intervals[, keep, drop = FALSE]
+}
+
+d_intervals_plain <- data.frame(
+  PCSPEC  = c("plasma", "urine"),
+  start   = 0,
+  end     = 24,
+  auclast = c(TRUE, FALSE),
+  ae      = c(FALSE, TRUE)
+)
+
+interval_add_secondary(
+  d_intervals_plain,
+  param     = "clr.last",
+  reference = data.frame(PCSPEC = "plasma")
+) |>
+  show_set_columns()
+```
+
+When no interval matches `reference`, the reference interval is created, requesting what the link reads from it (here `auclast`), and the creation is reported with a `pknca_message_secondary_created_interval` message:
+
+```{r}
+interval_add_secondary(
+  data.frame(PCSPEC = "urine", start = 0, end = 24, ae = TRUE),
+  param     = "clr.last",
+  reference = data.frame(PCSPEC = "plasma")
+) |>
+  show_set_columns()
+```
+
+Other behaviors to know:
+
+- `interval_add_secondary()` also accepts a `PKNCAdata` object and then returns the object with updated intervals. On a `PKNCAdata` object, `reference = NULL` (the default) writes out the same derivation that `pk.nca()` would make on its own (using the object's `group_ref` when it has one); anything the derivation cannot resolve is an error there rather than an `NA` result.
+- `target_groups` restricts which intervals request the parameter; by default every interval other than the reference requests it.
+- An interval that already points at a different reference for the parameter is left alone with a `pknca_warning_secondary_ref_exists` warning, so the helper never silently re-points an analysis.
+- `ref_id` names the reference interval's `interval_id` instead of the generated one.
+
+---
+
+## Bioavailability
+
+Bioavailability is calculated with `pk.calc.f()`: $F = (\text{AUC}_\text{test}/\text{Dose}_\text{test}) / (\text{AUC}_\text{ref}/\text{Dose}_\text{ref})$. As a secondary parameter, the reference dose and AUC come from the reference interval and the test dose and AUC from the requesting interval.
+
+**Renamed in 0.13.0:** the `f` parameter is now `f.obs`; an interval specification requesting `f` is an error pointing at `f.obs`. `f.obs` takes the reference values (`dose1`, `auc1`) from the reference interval and calculates the test values in its own interval as `totdose` and `aucinf.obs`; `dose2` and `auc2` interval columns are ignored.
+
+The name of each bioavailability parameter says which AUC it is built on:
+
+```{r}
+f_params <- c("f.obs", "f.pred", "f.last", "f.int.last", "f.int.all",
+              "f.int.obs", "f.int.pred")
+data.frame(
+  parameter   = f_params,
+  `AUC basis` = vapply(f_params, function(x) get.interval.cols()[[x]]$formalsmap$auc2, ""),
+  description = vapply(f_params, function(x) get.interval.cols()[[x]]$desc, ""),
+  check.names = FALSE
+) |>
+  knitr::kable(row.names = FALSE)
+```
+
+`f.obs`, `f.pred`, and `f.last` use the AUC extrapolated to infinity or the AUC to the last measurable concentration; the `f.int.*` variants use the interval AUCs (`aucint.*`), for example over a steady-state dosing interval.
+
+### Absolute bioavailability: IV reference, oral test
+
+In this two-period crossover, each subject received a 100 mg IV bolus and a 200 mg oral dose. The route is a column of the dosing data. To keep the example short the IV arm has a measured concentration at time 0; see the [Intravascular chapter](intravascular.qmd) for handling a bolus without one.
+
+```{r}
+d_conc_ba <- data.frame(
+  subject   = rep(1:2, each = 14),
+  treatment = rep(rep(c("IV", "oral"), each = 7), 2),
+  time      = rep(c(0, 0.5, 1, 2, 4, 8, 12), 4),
+  conc      = c(3.33, 3.07, 2.82, 2.39, 1.71, 0.879, 0.451,
+                0,    1.72, 2.53, 2.91, 2.35, 1.22,  0.629,
+                2.86, 2.62, 2.40, 2.02, 1.42, 0.712, 0.358,
+                0,    1.90, 2.80, 3.25, 2.67, 1.42,  0.749)
+)
+d_dose_ba <- data.frame(
+  subject   = rep(1:2, each = 2),
+  treatment = c("IV", "oral"),
+  time      = 0,
+  dose      = c(100, 200),
+  route     = c("intravascular", "extravascular")
+)
+
+o_conc_ba <- PKNCAconc(d_conc_ba, conc ~ time | treatment + subject)
+o_dose_ba <- PKNCAdose(d_dose_ba, dose ~ time | treatment + subject, route = "route")
+
+d_intervals_ba <- data.frame(
+  treatment  = c("IV", "oral"),
+  start      = 0,
+  end        = Inf,
+  aucinf.obs = TRUE,
+  f.obs      = c(FALSE, TRUE),
+  f.last     = c(FALSE, TRUE)
+)
+
+o_data_ba <- PKNCAdata(
+  o_conc_ba, o_dose_ba,
+  intervals = d_intervals_ba,
+  group_ref = data.frame(treatment = "IV")
+)
+o_nca_ba <- pk.nca(o_data_ba)
+
+d_ba <- as.data.frame(o_nca_ba)
+d_ba |>
+  filter(PPTESTCD %in% c("totdose", "aucinf.obs", "auclast", "f.obs", "f.last")) |>
+  select(treatment, subject, PPTESTCD, PPORRES, treatment_ref) |>
+  arrange(subject, treatment, PPTESTCD) |>
+  as.data.frame()
+```
+
+The `f.obs` result is the ratio of dose-normalized AUCinf,obs; for subject 1:
+
+```{r}
+value_of <- function(param, trt, subj = 1) {
+  d_ba$PPORRES[d_ba$PPTESTCD == param & d_ba$treatment == trt & d_ba$subject == subj]
+}
+(value_of("aucinf.obs", "oral") / value_of("totdose", "oral")) /
+  (value_of("aucinf.obs", "IV") / value_of("totdose", "IV"))
+```
+
+The reference for an absolute bioavailability is not derived from the route of administration; it was given here with `group_ref`. An `f.obs_ref` pointer or `interval_add_secondary()` work equally well. For relative bioavailability between two extravascular formulations, the reference is simply the other formulation's treatment value.
+
+---
+
+## Ratios
+
+The `ratio.*` parameters divide a parameter in the requesting interval by the same parameter in the reference interval, using `pk.calc.ratio()`:
+
+| Parameter | Ratio of |
+|---|---|
+| `ratio.cmax` | `cmax` |
+| `ratio.auclast` | `auclast` |
+| `ratio.aucinf.obs` | `aucinf.obs` |
+| `ratio.aucinf.pred` | `aucinf.pred` |
+| `ratio.aucint.last` | `aucint.last` |
+| `ratio.aucint.all` | `aucint.all` |
+
+`pk.calc.ratio()` can be called directly. It returns `NA` when the reference is missing or not above zero, because a ratio to a zero or negative reference is not interpretable:
+
+```{r}
+pk.calc.ratio(test = c(10, 10, 10), reference = c(20, 0, NA))
+```
+
+### Accumulation ratio: first dose against steady state
+
+Because `reference` can name `start` and `end`, the same helper links intervals in time rather than across groups. Here two subjects received 100 mg every 24 hours for five days, with full profiles after the first dose (0 to 24 hours) and the fifth dose (96 to 120 hours):
+
+```{r}
+times_profile <- c(0, 1, 2, 4, 8, 12, 24)
+d_conc_md <- data.frame(
+  subject = rep(1:2, each = 14),
+  time    = rep(c(times_profile, times_profile + 96), 2),
+  conc    = c(0,   4.1, 5.0, 4.2, 2.6, 1.6, 0.4,
+              0.9, 5.4, 6.2, 5.3, 3.4, 2.1, 0.9,
+              0,   3.2, 4.4, 3.9, 2.5, 1.5, 0.4,
+              0.8, 4.4, 5.6, 5.0, 3.3, 2.0, 0.8)
+)
+d_dose_md <- data.frame(
+  subject = rep(1:2, each = 5),
+  time    = rep(seq(0, 96, by = 24), 2),
+  dose    = 100
+)
+
+d_intervals_md <-
+  data.frame(start = c(0, 96), end = c(24, 120), cmax = TRUE, auclast = TRUE) |>
+  interval_add_secondary(param = "ratio.auclast",
+                         reference = data.frame(start = 0, end = 24)) |>
+  interval_add_secondary(param = "ratio.cmax",
+                         reference = data.frame(start = 0, end = 24))
+show_set_columns(d_intervals_md)
+
+o_data_md <- PKNCAdata(
+  PKNCAconc(d_conc_md, conc ~ time | subject),
+  PKNCAdose(d_dose_md, dose ~ time | subject),
+  intervals = d_intervals_md
+)
+o_nca_md <- pk.nca(o_data_md)
+
+d_md <- as.data.frame(o_nca_md)
+d_md |>
+  select(subject, start, end, PPTESTCD, PPORRES) |>
+  as.data.frame()
+```
+
+`ratio.auclast` on the 96 to 120 hour interval is the accumulation ratio of AUC over the dosing interval ($R_{ac}$), here `r round(d_md$PPORRES[d_md$PPTESTCD == "auclast" & d_md$subject == 1 & d_md$start == 96] / d_md$PPORRES[d_md$PPTESTCD == "auclast" & d_md$subject == 1 & d_md$start == 0], 3)` for subject 1 ($65.33 / 47.75$). The second call reused the `interval_id` that the first call gave the 0 to 24 hour interval. The [Superposition chapter](superposition.qmd) predicts steady state from single-dose data instead; `ratio.*` compares observed profiles.
+
+### Metabolite-to-parent ratio
+
+Nothing in a dataset says which analyte is the parent, so a metabolite ratio needs `group_ref` (or a pointer):
+
+```{r}
+d_conc_met <- data.frame(
+  subject = 1,
+  Analyte = rep(c("parent", "metabolite"), each = 7),
+  time    = rep(times_profile, 2),
+  conc    = c(0, 4.1, 5.0, 4.2, 2.6, 1.6, 0.4,
+              0, 0.6, 1.1, 1.4, 1.2, 0.9, 0.3)
+)
+d_dose_met <- data.frame(subject = 1, time = 0, dose = 100)
+
+d_intervals_met <- data.frame(
+  Analyte          = c("parent", "metabolite"),
+  start            = 0,
+  end              = Inf,
+  cmax             = TRUE,
+  aucinf.obs       = TRUE,
+  ratio.cmax       = c(FALSE, TRUE),
+  ratio.aucinf.obs = c(FALSE, TRUE)
+)
+
+o_data_met <- PKNCAdata(
+  PKNCAconc(d_conc_met, conc ~ time | Analyte + subject),
+  PKNCAdose(d_dose_met, dose ~ time | subject),
+  intervals = d_intervals_met,
+  group_ref = data.frame(Analyte = "parent")
+)
+
+as.data.frame(pk.nca(o_data_met), filter_requested = TRUE) |>
+  select(Analyte, PPTESTCD, PPORRES, Analyte_ref) |>
+  as.data.frame()
+```
+
+The ratio is of the reported concentration units; a molar (molecular-weight-adjusted) metabolite ratio is not yet available.
+
+### Food effect: fed against fasted
+
+A food-effect comparison is a ratio with the fasted treatment as the reference:
+
+```{r}
+d_conc_food <- data.frame(
+  subject   = rep(1:2, each = 14),
+  treatment = rep(rep(c("fasted", "fed"), each = 7), 2),
+  time      = rep(times_profile, 4),
+  conc      = c(0, 4.1, 5.0, 4.2, 2.6, 1.6, 0.4,   0, 1.8, 3.3, 4.0, 2.9, 1.8, 0.5,
+                0, 3.2, 4.4, 3.9, 2.5, 1.5, 0.4,   0, 1.5, 2.9, 3.6, 2.7, 1.7, 0.5)
+)
+d_dose_food <- data.frame(
+  subject   = rep(1:2, each = 2),
+  treatment = c("fasted", "fed"),
+  time      = 0,
+  dose      = 100
+)
+
+d_intervals_food <-
+  data.frame(treatment = c("fasted", "fed"), start = 0, end = Inf,
+             cmax = TRUE, tmax = TRUE, aucinf.obs = TRUE) |>
+  interval_add_secondary(param = "ratio.cmax",
+                         reference = data.frame(treatment = "fasted")) |>
+  interval_add_secondary(param = "ratio.aucinf.obs",
+                         reference = data.frame(treatment = "fasted"))
+
+o_nca_food <- pk.nca(PKNCAdata(
+  PKNCAconc(d_conc_food, conc ~ time | treatment + subject),
+  PKNCAdose(d_dose_food, dose ~ time | treatment + subject),
+  intervals = d_intervals_food
+))
+
+as.data.frame(o_nca_food) |>
+  filter(grepl("^ratio", PPTESTCD)) |>
+  select(treatment, subject, PPTESTCD, PPORRES, treatment_ref) |>
+  as.data.frame()
+```
+
+Food delays and lowers the peak (`ratio.cmax` about 0.8) without changing total exposure (`ratio.aucinf.obs` about 0.99). These are the per-subject ratios; a formal food-effect or bioequivalence assessment (geometric mean ratio with a confidence interval) is described in the [Bioequivalence vignette](https://humanpred.github.io/pknca/articles/v50-bioequivalence.html).
+
+`reference` must name `start`, `end`, or grouping columns that are present in the intervals, which is why the intervals here carry a `treatment` column.
+
+---
+
+## Exclusions cross the link
+
+An exclusion on a value that feeds a secondary parameter reaches the result. Below, the plasma profile has too few points after Tmax for a half-life, so `aucinf.obs` (which extrapolates with it) is excluded, and the `clr.obs` built on that AUC inherits the reason instead of becoming a number:
+
+```{r}
+d_conc_x <- data.frame(
+  subject = 1,
+  PCSPEC  = rep(c("plasma", "urine"), times = c(3, 2)),
+  time    = c(0, 2, 4, 0, 6),
+  conc    = c(10, 8, 7, 2, 1),
+  vol     = c(NA, NA, NA, 0.10, 0.15)
+)
+d_intervals_x <- data.frame(
+  PCSPEC      = c("plasma", "urine"),
+  start       = 0,
+  end         = 6,
+  interval_id = c("plasma_0_6", NA),
+  aucinf.obs  = c(TRUE, FALSE),
+  ae          = c(FALSE, TRUE),
+  clr.obs     = c(FALSE, TRUE),
+  clr.obs_ref = c(NA, "plasma_0_6")
+)
+
+as.data.frame(pk.nca(PKNCAdata(
+  PKNCAconc(d_conc_x, conc ~ time | PCSPEC + subject, volume = "vol"),
+  intervals = d_intervals_x
+))) |>
+  filter(PPTESTCD %in% c("half.life", "aucinf.obs", "ae", "clr.obs")) |>
+  select(PCSPEC, PPTESTCD, PPORRES, exclude) |>
+  as.data.frame()
+```
+
+The warning comes from the half-life calculation on the plasma profile (two points after Tmax, fewer than `min.hl.points = 3`) and is the point of the example. The same reason appears in the `exclude` column of `half.life`, `aucinf.obs`, and the urine row's `clr.obs`.
+
+This is what post hoc division of a results table does not do: an excluded input cannot quietly become a reported clearance. Exclusions applied afterwards with `exclude()` or the `exclude_nca_*()` functions work on a finished result and do not propagate along a link.
+
+---
+
+## Units of secondary parameters
+
+A secondary parameter takes one value from the requesting interval and another from the reference interval, so when units differ between groups, its units are composed from both. In this version of the renal example the urine is reported in mg/L and the plasma in ng/mL (unit columns, so the units can vary by group):
+
+```{r}
+d_conc_u <- d_conc |>
+  mutate(
+    cu   = ifelse(PCSPEC == "plasma", "ng/mL", "mg/L"),
+    conc = ifelse(PCSPEC == "plasma", conc * 1000, conc),
+    tu   = "hr",
+    au   = "mg"
+  )
+o_conc_u <- PKNCAconc(d_conc_u, conc ~ time | PCSPEC + subject,
+                      volume = "vol", duration = "dur",
+                      concu = "cu", timeu = "tu", amountu = "au")
+
+o_nca_u <- pk.nca(PKNCAdata(o_conc_u, intervals = d_intervals_linked |> select(-fe)))
+
+as.data.frame(o_nca_u) |>
+  filter(subject == 1) |>
+  select(PCSPEC, PCSPEC_ref, PPTESTCD, PPORRES, PPORRESU) |>
+  as.data.frame()
+```
+
+There is no unit argument for the collection volume: `amountu` is the unit of the amount excreted (`conc × vol`), so the volume must be recorded in units that make that product an amount in `amountu`. Here the volumes are in liters, and mg/L × L = mg.
+
+`clr.last` is reported in `mg/(hr*ng/mL)`: the `mg` from the urine collection that supplied the amount and the `hr*ng/mL` from the plasma profile that supplied the AUC. Its value, $26.65 / 47748 = 0.000558$, is the same number as before in different units; no value is converted. The units table that `PKNCAdata()` builds gains a `<group>_ref` column and one row per pair of groups to make this possible:
+
+```{r}
+o_data_u <- PKNCAdata(o_conc_u, intervals = d_intervals_linked |> select(-fe))
+o_data_u$units |>
+  filter(PPTESTCD %in% c("auclast", "ae", "clr.last"))
+```
+
+The rows with `NA` in `PCSPEC_ref` describe results that took nothing from another interval; the rest describe each pair of groups. The table is an ordinary `PKNCAdata(units = )` argument, so a row can be edited to report a standardized unit. One mg/(hr·ng/mL) is 1000 L/hr:
+
+```{r}
+d_units_clr <- o_data_u$units
+is_clr_mixed <- d_units_clr$PPTESTCD == "clr.last" &
+  d_units_clr$PPORRESU == "mg/(hr*ng/mL)"
+d_units_clr$PPSTRESU[is_clr_mixed] <- "L/hr"
+d_units_clr$conversion_factor[is_clr_mixed] <- 1000
+
+pk.nca(PKNCAdata(o_conc_u, intervals = d_intervals_linked |> select(-fe),
+                 units = d_units_clr)) |>
+  as.data.frame() |>
+  filter(subject == 1) |>
+  select(PCSPEC, PPTESTCD, PPORRES, PPORRESU, PPSTRES, PPSTRESU) |>
+  as.data.frame()
+```
+
+When the two sides of a ratio are convertible into each other (a `ratio.*` between analytes reported in ng/mL and mg/L), the quotient is also standardized to a `PPSTRESU` of `"fraction"` in `PPSTRES`. When they are not (a bioavailability between a dose in mg and a dose in mg/kg), the composite units stand. Nothing is set to `NA` for unit reasons.
+
+---
+
+## Reporting secondary parameters
+
+- **`PPANMETH`** names the reference interval on every linked result, as "Reference interval:" followed by how it differs from the requesting interval and its times.
+- **`<group>_ref` columns** (`PCSPEC_ref`, `treatment_ref`, …) give the group the reference value came from.
+- **`summary()`** summarizes a secondary parameter on the intervals that requested it; intervals that did not request it show `.`:
+
+```{r}
+summary(o_nca_md)
+```
+
+- **`as.data.frame(filter_requested = TRUE)`** drops the source values calculated only to support a link.
+
+---
+
+## Limitations
+
+These are documented as not yet supported in PKNCA 0.13.0:
+
+- Sparse concentration data (`PKNCAconc(sparse = TRUE)`) with any secondary parameter requested is an error.
+- The reference for absolute bioavailability is not derived from the route of administration; give it with `group_ref`, an `f.obs_ref` pointer, or `interval_add_secondary()`.
+- The CDISC `PPTESTCD` of a ratio does not depend on what the ratio compares (accumulation against metabolite ratio).
+- `exclude()` and the `exclude_nca_*()` functions do not propagate across a link (see above).
+- Molecular-weight adjustment of a metabolite ratio is not available.
+
+---
+
+## Defining your own secondary parameter
+
+A custom parameter becomes secondary when its `formalsmap` in `add.interval.col()` wraps an argument in `pknca_ref()`, which says the argument comes from the reference interval rather than the current one (for example `formalsmap = list(auc = pknca_ref("auclast"))`). `add.interval.col()` also accepts `selection = list(secondary = TRUE)`, and the names `interval_id` and anything ending in `_ref` are reserved for the linkage columns. Arguments taken from the current interval must be listed in `depends`. See the [Custom Parameters chapter](custom-parameters.qmd) and the section [Parameters That Need Another Interval](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html#parameters-that-need-another-interval) of the parameter-writing vignette.
+
+---
+
+::: {.callout-note icon=false appearance="minimal"}
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [interval_add_secondary()](https://humanpred.github.io/pknca/reference/interval_add_secondary.html) · [pknca_parameter_table()](https://humanpred.github.io/pknca/reference/pknca_parameter_table.html) · [pk.calc.f()](https://humanpred.github.io/pknca/reference/pk.calc.f.html) · [pk.calc.clr()](https://humanpred.github.io/pknca/reference/pk.calc.clr.html) · [pk.calc.ratio()](https://humanpred.github.io/pknca/reference/pk.calc.ratio.html) · [pknca_ref()](https://humanpred.github.io/pknca/reference/pknca_ref.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html)
+:::

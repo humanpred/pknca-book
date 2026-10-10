@@ -21,7 +21,16 @@ An interval specification is a plain R `data.frame` with one row per calculation
 | `start` | numeric | Start of the calculation window (same units as time) |
 | `end`   | numeric | End of the calculation window; use `Inf` for open-ended windows |
 
-Every remaining column is normally a **parameter flag**: its name must match a known PKNCA parameter name and its value must be `TRUE` (calculate) or `FALSE` (skip). Columns set to `FALSE` are simply ignored, so you only need to list the parameters you actually want. The exceptions are grouping columns used for matching (see the group-matching section below), an `impute` column (see the [Concentration Imputation chapter](imputation.qmd)), and columns carried through to the results via the `keep_interval_cols` option.
+Every remaining column is normally a **parameter flag**: its name must match a known PKNCA parameter name and its value must be `TRUE` (calculate) or `FALSE` (skip). Columns set to `FALSE` are simply ignored, so you only need to list the parameters you actually want. The exceptions are:
+
+- grouping columns used for matching (see the group-matching section below);
+- the imputation column, which may have any name and is the column that the `impute` argument of `PKNCAdata()` names (see [Imputation columns](#imputation-columns) below and the [Concentration Imputation chapter](imputation.qmd));
+- an `interval_id` column and `<parameter>_ref` columns, which link an interval to a reference interval for secondary parameters such as renal clearance, bioavailability, and ratios (≥ 0.13.0; see the [Secondary Parameters chapter](secondary-parameters.qmd)); and
+- value columns that some parameters read from the interval: `conc_above` (the concentration threshold for `time_above`) and `tau` (the dosing interval for `mrt.md.*` and `vss.md.*`, ≥ 0.13.0; see the [Multiple-Dose and Steady-State chapter](multiple-dose.qmd));
+- `interval_time_kind`, which `pk.nca()` adds when it converts [date-time intervals](#date-time-intervals); and
+- columns carried through to the results via the `keep_interval_cols` option.
+
+Any other column is an error (`pknca_error_invalid_interval_columns`) when the intervals are checked by `PKNCAdata(intervals = )`, `set_intervals()`, or `pk.nca()` (≥ 0.13.0; see [Validating intervals](#validating-intervals)).
 
 ```{r interval-structure}
 # A minimal interval: AUClast over the first 24 hours
@@ -94,18 +103,7 @@ as.data.frame(o_nca_subj) |>
 
 ## Default intervals with no `intervals` argument
 
-When you call `PKNCAdata()` without an explicit `intervals` argument, PKNCA substitutes the built-in default single-dose intervals. These are stored in `PKNCA.options("single.dose.aucs")`:
-
-```{r default-intervals}
-PKNCA.options("single.dose.aucs")
-```
-
-The two default rows are:
-
-- **Row 1** (`end = 24`): calculates `auclast` only — the workhorse for most single-dose studies.
-- **Row 2** (`end = Inf`): calculates `cmax`, `tmax`, `half.life`, and `aucinf.obs`.
-
-These defaults are suitable for a single-dose extravascular study with at least 24 hours of sampling. For any other design (multiple dose, IV, urine, etc.) you should supply explicit intervals. To change the default, set `single.dose.aucs` — see [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
+When you call `PKNCAdata()` without an `intervals` argument, PKNCA generates intervals from the dose times of each group. It finds the dosing regimen, places the intervals (after a single dose, after the first dose, over the last dosing interval at steady state), and asks `pknca_interval_table()` (described [below](#building-intervals)) for the parameters and the imputation that suit each interval (≥ 0.13.0). For a single extravascular dose, as in `Theoph`, every subject gets one interval from the dose to infinity:
 
 ```{r use-default}
 o_dose <- PKNCAdose(
@@ -115,13 +113,37 @@ o_dose <- PKNCAdose(
   Dose ~ Time | Subject
 )
 
-# No intervals argument — uses PKNCA.options("single.dose.aucs") automatically
+# No intervals argument: intervals are generated automatically
 o_data_default <- PKNCAdata(
   PKNCAconc(Theoph, conc ~ Time | Subject),
   o_dose
 )
-o_data_default$intervals
+
+# Show subject 1, keeping only the columns that request a parameter
+o_data_default$intervals |>
+  filter(Subject == "1") |>
+  select(where(~ !is.logical(.x) || any(.x)))
 ```
+
+The row requests `auclast`, `cmax`, `tmax`, `tlag`, `count_conc`, `half.life`, `aucinf.obs`, `aucpext.obs`, and `cl.obs`, and its `impute` column holds `start_predose_conc0`, which keeps a concentration measured at the dose time, carries a predose concentration forward when there is none, and imputes 0 otherwise. An intravenous bolus gets an extra row that back-extrapolates `c0` without imputation, multiple-dose data get rows built on the `aucint.*` family, and a sparse design imputes only a zero at a single dose. The [Automatic Intervals and Dosing Regimens chapter](auto-intervals.qmd) covers how the regimen is detected, the `auto.interval.tolerance` and `tau.choices` options, and the intervals each design gets.
+
+::: {.callout-note}
+## Changed in 0.13.0
+Before 0.13.0, a single dose got the two rows of the `single.dose.aucs` option instead: `auclast` over 0 to 24 and `cmax`, `tmax`, `half.life`, and `aucinf.obs` over 0 to infinity, with no imputation. The option still exists and is used when `auto.interval.method = "legacy"`:
+
+```{r default-legacy}
+o_data_legacy <- PKNCAdata(
+  PKNCAconc(Theoph, conc ~ Time | Subject),
+  o_dose,
+  options = list(auto.interval.method = "legacy")
+)
+o_data_legacy$intervals |>
+  filter(Subject == "1") |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+The 0 to 24 window of `single.dose.aucs` is written for hours; with a time unit other than hours, the legacy method warns (`pknca_warning_single_dose_aucs_unit`). See also [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
+:::
 
 ---
 
@@ -153,7 +175,7 @@ Overlapping intervals are allowed and do not interfere with each other.
 
 Some sampling designs record a *duration* rather than an instantaneous sample — for example, urine collection periods or IV infusions. PKNCA tracks these via the `duration` argument in `PKNCAconc()` and `PKNCAdose()`.
 
-When a concentration object carries duration information, PKNCA selects samples for an interval based on **both the start and end of the collection period**. The collection end time must fall at or before the interval `end` for the sample to be included:
+When a concentration object carries duration information, PKNCA still selects samples for an interval by their recorded time, which is the **start** of the collection period: a collection is included when its start is at or after the interval `start` and at or before the interval `end`. The duration is not consulted during selection, so a collection that starts inside the interval but ends after `end` contributes its full amount to the interval. For results that are simple to interpret, align the collection boundaries with the interval boundaries, as here:
 
 ```{r duration-concept}
 # Urine collected 0-4, 4-8, and 8-24 h after a 100 mg oral dose
@@ -185,9 +207,247 @@ For IV infusions, `setDuration()` on the dose object sets the infusion duration,
 
 ---
 
+## Building intervals with `pknca_interval_table()` {#building-intervals}
+
+`pknca_interval_table()` (≥ 0.13.0) builds an interval specification from a description of the analysis instead of a list of parameter names. Given a start, an end, how often the drug was given (`dosing`), and how (`route`), it chooses the parameters usually reported for that context, the AUC they are built on, and the imputation to calculate them from. It is the function the automatic intervals use, so for a single extravascular dose it returns the same row as the default intervals above:
+
+```{r interval-table-single}
+pknca_interval_table(start = 0, end = Inf, dosing = "single", route = "extravascular") |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+The arguments describe the context:
+
+| Argument | Values | Meaning |
+|---|---|---|
+| `start`, `end` | numbers (vectors allowed) | The interval bounds; vectors give one set of rows per interval |
+| `dosing` | `"single"` (default), `"multiple"`, `"steady_state"` | Given once, repeatedly, or repeatedly at steady state (`pknca_dosing()`) |
+| `route` | `"extravascular"` (default), `"iv_bolus"`, `"iv_infusion"`, `"iv_continuous_infusion"` | How the drug was given (`pknca_routes()`); note these are not the `"intravascular"` spelling of `PKNCAdose()` |
+| `sample_type` | `"spot"` (default), `"interval"` | Samples at a point in time (blood, plasma) or collections over an interval (urine, feces) (`pknca_sample_types()`) |
+| `sparse` | `FALSE` (default), `TRUE` | A sparse design keeps the same parameters but imputes only `start_conc0` at a single dose and nothing otherwise |
+| `tier` | `"common"` (default), `"all"` | The parameters usually reported, or every parameter the context can calculate |
+| `include`, `exclude` | parameter names or concepts | Add to or remove from what the context gives; naming one in both is an error |
+| `impute` | `NULL` (default), a method string, or `NA` | `NULL` chooses the imputation from the context; `NA` uses none |
+| `preset` | a name from `pknca_presets()` | A named set of the arguments above to start from; explicit arguments override it |
+| `clast_type` | `"obs"` (default), `"pred"` | Extrapolate to infinity from the observed or the predicted last concentration |
+| `...` | named values | Columns added to every row, typically the groups the interval applies to |
+
+A single dose is built on AUClast and its extrapolation to infinity; a repeated dose is built on the `aucint.*` family, which interpolates at both interval boundaries, with clearance, volume, and MRT chosen to match. At steady state with the fluctuation parameters added (and a group column given through `...`):
+
+```{r interval-table-ss}
+pknca_interval_table(
+  start = 144, end = 168,
+  dosing = "steady_state", route = "extravascular",
+  include = "fluctuation",
+  Subject = "1"
+) |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+`include` and `exclude` accept parameter names or the concepts listed by `pknca_concepts()`, so `include = "mrt"` adds the MRT parameters the single-dose context calculates (`mrt.last` and `mrt.obs` in the output below) and `exclude = "clearance"` drops `cl.obs`:
+
+```{r interval-table-include}
+pknca_interval_table(0, Inf, include = c("mrt", "aumclast"), exclude = "clearance") |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+When an imputed value would become the answer, the parameter is kept out of the imputation by splitting the interval into more than one row. After an intravenous bolus, `c0` is back-extrapolated in a second row with no imputation, so that an imputed concentration at the dose time cannot become C0:
+
+```{r interval-table-iv}
+pknca_interval_table(0, Inf, dosing = "single", route = "iv_bolus") |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+`tier = "all"` gives every parameter the context can calculate (`r sum(vapply(pknca_interval_table(0, Inf, tier = "all"), function(v) is.logical(v) && any(v), logical(1)))` parameters for a single extravascular dose, rather than 9), which is a convenient starting point that you can then trim with `interval_remove_param()`.
+
+The table is an ordinary interval data frame, so it goes straight into `PKNCAdata()`. Its `impute` column is read because `impute` defaults to `NA`, which looks for a column named `"impute"`:
+
+```{r interval-table-run}
+o_conc <- PKNCAconc(Theoph, conc ~ Time | Subject)
+d_int_table <- pknca_interval_table(0, Inf, include = "aumclast")
+o_nca_table <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = d_int_table))
+as.data.frame(o_nca_table) |>
+  filter(Subject == "1") |>
+  select(Subject, start, end, PPTESTCD, PPORRES)
+```
+
+### Presets
+
+`pknca_presets()` gives named argument sets for common analyses. Each is a list of arguments to `pknca_interval_table()`:
+
+```{r presets}
+names(pknca_presets())
+pknca_presets()$bioequivalence
+```
+
+| Preset | Arguments it sets |
+|---|---|
+| `single_dose` | `dosing = "single"`, `route = "extravascular"` |
+| `steady_state` | `dosing = "steady_state"`, `route = "extravascular"` |
+| `bioequivalence` | single extravascular dose, `include = c("aucall", "clast.obs", "tlast")` |
+| `first_in_human` | single extravascular dose, `include = c("clast.obs", "tlast", "span.ratio")` |
+| `mass_balance` | single extravascular dose, `sample_type = "interval"`, `include = "excretion_rate"` |
+| `sparse_single_dose` | single extravascular dose, `sparse = TRUE` |
+
+Arguments given directly override the preset, here removing the imputation:
+
+```{r presets-use}
+pknca_interval_table(0, Inf, preset = "bioequivalence", impute = NA) |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+The [Bioequivalence chapter](bioequivalence.qmd) uses the `bioequivalence` preset, and the [Sparse Sampling chapter](sparse.qmd) covers sparse designs.
+
+---
+
+## How parameters are classified with `pknca_parameter_table()`
+
+`pknca_interval_table()` chooses parameters from a classification of every registered parameter (≥ 0.13.0). `pknca_parameter_table()` shows it: the `concept` a parameter computes, its reporting `tier`, its `sample_type`, whether it is a `sparse` estimator output, `secondary` (needs inputs from more than one profile), or `dose_normalized`, and the comma-separated `route` and `dosing` contexts it applies to.
+
+```{r param-table}
+pknca_parameter_table(c("auclast", "aucint.last", "cmax", "cl.obs", "ae", "f.obs")) |>
+  select(parameter, concept, tier, sample_type, secondary, dosing)
+```
+
+The vocabularies have their own listing functions: `pknca_concepts()`, `pknca_tiers()`, `pknca_dosing()`, and `pknca_sample_types()` (with `pknca_routes()` for routes).
+
+```{r param-vocab}
+pknca_concepts()
+pknca_tiers()
+```
+
+A parameter's concept is declared on its calculation function with `pknca_concept()`, so a parameter registered by another package (or by you, see the [Writing Custom Parameter Functions chapter](custom-parameters.qmd)) can be chosen automatically too. An unclassified parameter is not an error: it is calculated when you request it by name but is never selected automatically, and `pknca_check_parameter_classification()` lists such parameters (zero rows means every registered parameter is classified).
+
+```{r param-concept}
+pknca_concept(pk.calc.cmax)
+nrow(pknca_check_parameter_classification())
+```
+
+Secondary parameters (`f.obs`, `clr.obs`, `ratio.*`, and others) are never selected automatically, because one interval cannot say which other profile is the reference; request them by name as described in the [Secondary Parameters chapter](secondary-parameters.qmd).
+
+---
+
+## Editing intervals {#editing-intervals}
+
+Four functions edit an interval specification (≥ 0.13.0). Each accepts either a data frame of intervals or a `PKNCAdata` object (whose `$intervals` it edits), so you can start from the automatic intervals or from `pknca_interval_table()` and adjust them:
+
+| Function | What it does | Key arguments |
+|---|---|---|
+| `interval_add_param()` | Request more parameters | `param` (names), `param_pattern` (regular expressions), `target_groups` |
+| `interval_remove_param()` | Stop requesting parameters | `param`, `param_pattern`, `target_groups` |
+| `interval_add_impute()` | Add an imputation method | `target_impute`, `after` (position in an existing chain: `0` first, `Inf` last), `target_params`, `target_groups` |
+| `interval_remove_impute()` | Remove an imputation method | `target_impute`, `target_params`, `target_groups` |
+
+`target_groups` is a data frame of group values; a row of the intervals is edited when it matches every column of at least one of its rows.
+
+```{r edit-param}
+d_edit <- data.frame(start = 0, end = Inf, cmax = TRUE, tmax = TRUE)
+
+# Add parameters by name, or by regular expression
+interval_add_param(d_edit, param = c("auclast", "half.life")) |>
+  select(where(~ !is.logical(.x) || any(.x)))
+interval_add_param(d_edit, param_pattern = "^aucint\\.(last|all)$") |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+Removing every parameter from every interval is an error (`pknca_error_interval_nothing_remains`), since nothing would be left to calculate.
+
+When the parameters of one row no longer share the same imputation, the row is split into as many rows as needed, and rows that come to share every value are merged again. Imputing a start concentration for `auclast` only splits the row:
+
+```{r edit-impute}
+d_edit2 <- data.frame(start = 0, end = Inf, cmax = TRUE, auclast = TRUE, half.life = TRUE)
+interval_add_impute(d_edit2, target_impute = "start_conc0", target_params = "auclast") |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+Editing a `PKNCAdata` object changes all of its intervals at once. Starting from the automatic `Theoph` intervals, drop `tlag` and `count_conc`, add `aumclast`, and calculate the half-life without the imputed start concentration:
+
+```{r edit-pkncadata}
+o_data_edited <- o_data_default |>
+  interval_remove_param(param = c("tlag", "count_conc")) |>
+  interval_add_param(param = "aumclast") |>
+  interval_remove_impute(target_impute = "start_predose_conc0", target_params = "half.life")
+
+o_data_edited$intervals |>
+  filter(Subject == "1") |>
+  select(where(~ !is.logical(.x) || any(.x)))
+```
+
+`target_groups` restricts an edit to some groups, here subject 2 only:
+
+```{r edit-groups}
+d_edit3 <- data.frame(Subject = c("1", "2"), start = 0, end = Inf, auclast = TRUE)
+interval_add_impute(d_edit3, target_impute = "start_conc0",
+                    target_groups = data.frame(Subject = "2"))
+```
+
+### Imputation columns {#imputation-columns}
+
+The imputation column of an interval table may have any name (≥ 0.13.0). `PKNCAdata(impute = )` reads it this way:
+
+1. If `impute` names a column of the intervals, each row's method comes from that column.
+2. Otherwise, if `impute` is `NA` (the default) and the intervals have a column named `"impute"`, each row's method comes from that column. This is how the automatic intervals and `pknca_interval_table()` carry their imputation.
+3. Otherwise, `impute` is itself the method string for every interval (an `NA` with no `"impute"` column means no imputation).
+
+The column must be character (`pknca_error_interval_impute_not_character`), except that a column of only `NA` means no imputation. `get_impute_column()` and `get_impute_method()` apply the same rule, which is useful when you write code around PKNCA objects:
+
+```{r impute-column}
+d_int_named <- data.frame(
+  start = c(0, 0), end = c(24, Inf),
+  auclast = c(TRUE, FALSE), aucinf.obs = c(FALSE, TRUE),
+  my_impute = c("start_conc0", "start_predose_conc0")
+)
+o_data_named <- PKNCAdata(o_conc, o_dose, intervals = d_int_named, impute = "my_impute")
+get_impute_column(o_data_named$intervals, impute = o_data_named$impute)
+get_impute_method(o_data_named$intervals, impute = o_data_named$impute)
+
+# A method string is not a column
+get_impute_column(d_int_named, impute = "start_conc0")
+```
+
+`interval_add_impute()` and `interval_remove_impute()` edit whichever column the object's `impute` setting names. The methods themselves are described in the [Concentration Imputation chapter](imputation.qmd).
+
+---
+
+## Date-time intervals {#date-time-intervals}
+
+With date-time (POSIXct or Date) concentration and dose times (≥ 0.13.0), `start` and `end` may also be date-times. `pk.nca()` converts each row to numeric time relative to the time reference (the first dose) of the group it applies to. A row that does not name every reference group becomes one row per group, because one clock-time window is a different relative window for each subject. An `end` of `Inf` stays infinite.
+
+```{r datetime-intervals}
+d_conc_dt <- data.frame(
+  Subject = rep(c("A", "B"), each = 8),
+  datetime = as.POSIXct("2024-03-04 08:00", tz = "UTC") +
+    3600 * c(c(0, 0.5, 1, 2, 4, 8, 12, 24), 25.5 + c(0, 0.5, 1, 2, 4, 8, 12, 24)),
+  conc = c(0, 4.1, 6.3, 5.9, 4.4, 2.6, 1.5, 0.4,
+           0, 3.2, 5.5, 5.8, 4.6, 2.9, 1.8, 0.6)
+)
+d_dose_dt <- data.frame(
+  Subject = c("A", "B"),
+  datetime = as.POSIXct(c("2024-03-04 08:00", "2024-03-05 09:30"), tz = "UTC"),
+  dose = 100
+)
+# One clock-time window for both subjects: from subject A's dose onward
+d_int_dt <- data.frame(
+  start = as.POSIXct("2024-03-04 08:00", tz = "UTC"),
+  end = Inf,
+  cmax = TRUE
+)
+o_nca_dt <- pk.nca(PKNCAdata(
+  PKNCAconc(d_conc_dt, conc ~ datetime | Subject),
+  PKNCAdose(d_dose_dt, dose ~ datetime | Subject),
+  intervals = d_int_dt
+))
+as.data.frame(o_nca_dt) |>
+  select(Subject, start, end, PPTESTCD, PPORRES)
+```
+
+Subject B was dosed 25.5 hours after subject A, so the same window starts at −25.5 h relative to subject B's dose. The converted intervals, with an `interval_time_kind` column, are in `o_nca_dt$data$intervals`. Date-time bounds mixed with finite numeric bounds, an infinite start, date-time intervals for numeric data, and a time zone that differs from the data are errors. The [Date-Time Data and Time References chapter](datetime.qmd) covers date-time data in full.
+
+---
+
 ## Full parameter catalog
 
-The complete list of calculable parameters is available programmatically via `get.interval.cols()`. Each entry carries a description, the calculation function, unit type, and dependency information.
+The complete list of calculable parameters is available programmatically via `get.interval.cols()`. Each entry carries a description, the calculation function, unit type, and dependency information. The table below joins in the `concept` and `tier` from `pknca_parameter_table()`:
 
 ```{r param-catalog}
 cols <- get.interval.cols()
@@ -200,11 +460,16 @@ param_table <- data.frame(
 
 # Exclude the structural columns start/end from the display
 param_table <- param_table[!param_table$parameter %in% c("start", "end"), ]
+param_table <- merge(
+  param_table,
+  pknca_parameter_table()[, c("parameter", "concept", "tier")],
+  by = "parameter", sort = FALSE
+)
 rownames(param_table) <- NULL
 
 knitr::kable(
   param_table,
-  col.names = c("Parameter", "Description"),
+  col.names = c("Parameter", "Description", "Concept", "Tier"),
   caption   = paste0(
     "All ", nrow(param_table),
     " calculable parameters in PKNCA ", packageVersion("PKNCA")
@@ -214,16 +479,18 @@ knitr::kable(
 
 Parameters fall into broad families:
 
-- **AUC / AUMC** — `auclast`, `aucall`, `aucinf.obs`, `aucinf.pred`, `aumclast`, and interval-restricted `aucint.*` variants
-- **Concentration** — `cmax`, `cmin`, `ctrough`, `clast.obs`, `clast.pred`, `c0`, `cstart`, `ceoi`
-- **Time** — `tmax`, `tmin`, `tlast`, `tfirst`, `tlag`
-- **Clearance / Volume** — `cl.obs`, `cl.pred`, `vz.obs`, `vz.pred`, `vss.obs`, `vss.iv.obs`, renal `clr.*`
-- **Elimination** — `half.life`, `lambda.z`, `lambda.z.n.points`, `span.ratio`, `r.squared`, `adj.r.squared`
-- **Excretion** — `ae`, `fe`
-- **Steady-state / multiple-dose** — `deg.fluc`, `swing`, `ptr`, `cav`, `mrt.*`, `thalf.eff.*`
-- **Sparse sampling** — `sparse_auclast`, `sparse_auc_se`, `sparse_auc_df`
-- **IV-specific** — `aucivlast`, `aucivpbext*`, `aucivinf.*`
+- **AUC / AUMC** — `auclast`, `aucall`, `aucinf.obs`, `aucinf.pred`, `aumclast`, `aumcall`, `aumcinf.*`, the interval-restricted `aucint.*` and `aumcint.*` variants, and `aucabove.*`
+- **Concentration** — `cmax`, `cmin`, `ctrough`, `clast.obs`, `clast.pred`, `c0`, `cstart`, `ceoi`, `cav`
+- **Time** — `tmax`, `tmin`, `tlast`, `tfirst`, `tlag`, `time_above`
+- **Clearance / volume / MRT** — the `cl.*`, `vz.*`, `vss.*`, `mrt.*`, and `kel.*` families, each in observed, predicted, last, all, interval, and IV forms (for example `cl.obs`, `cl.last`, `cl.int.inf.obs`, `cl.iv.obs`)
+- **Elimination** — `half.life`, `lambda.z`, `lambda.z.n.points`, `span.ratio`, `r.squared`, `adj.r.squared`, `lambda.z.corrxy`, and the Tobit outputs
+- **Excretion** — `ae`, `fe`, `volpk`, `clr.*`, `ermax`, `ertmax`, `ertlst`, `erint`, `erlst`
+- **Steady-state / multiple-dose** — `deg.fluc`, `swing`, `ptr`, `mrt.md.*`, `vss.md.*`, `mrt.ivmd.*`, `vss.ivmd.*`, `thalf.eff.*`
+- **Secondary (reference interval needed)** — bioavailability `f.obs`, `f.pred`, `f.last`, `f.int.*` and the `ratio.*` family (see the [Secondary Parameters chapter](secondary-parameters.qmd))
+- **Sparse estimator outputs** — `auclast_se`, `auclast_df`, and the other `_se` and `_df` companions, which arrive with the sparse estimates; the catalog also still lists the deprecated `sparse_*` and `*.sparse.last` names (see the [Sparse Sampling chapter](sparse.qmd))
+- **IV-specific** — `aucivlast`, `aucivall`, `aucivinf.*`, `aumciv*`, `aucivpbext*`
 - **Dose-normalized** — `auclast.dn`, `cmax.dn`, and other `*.dn` variants
+- **Counts and dose** — `count_conc`, `count_conc_measured`, `totdose`
 
 If a parameter you need is not in the catalog, you can add it — see the [Writing Custom Parameter Functions chapter](custom-parameters.qmd) and the vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
 
@@ -231,7 +498,7 @@ If a parameter you need is not in the catalog, you can add it — see the [Writi
 
 ## Checking parameter dependencies with `get.parameter.deps()`
 
-Some parameters depend on others being computed first. `get.parameter.deps()` returns all parameters that use a given parameter as an input:
+Some parameters depend on others being computed first. By default, `get.parameter.deps()` returns all parameters that use a given parameter as an input, which answers "what becomes invalid if this parameter changes?":
 
 ```{r param-deps}
 # Which parameters depend on auclast?
@@ -240,11 +507,20 @@ get.parameter.deps("auclast")
 
 This is useful when you plan to modify or exclude a parameter and want to know which downstream parameters depend on it. Dependencies are resolved automatically — you do not need to set dependency flags to `TRUE` manually.
 
+`recursive = TRUE` (≥ 0.13.0) searches in the other direction, answering "what does this parameter need?". It follows each dependency back through the intermediate parameters and returns only what they end at: data inputs such as `conc`, `time`, and `dose`, and the other arguments of the calculation functions, such as `options` (intermediate parameters such as `aucinf.obs` are not listed):
+
+```{r param-deps-recursive}
+get.parameter.deps("auclast", recursive = TRUE)
+get.parameter.deps("cl.obs", recursive = TRUE)
+```
+
 ---
 
-## Validating custom intervals with `check.interval.specification()`
+## Validating intervals {#validating-intervals}
 
-Before passing intervals to `PKNCAdata()`, you can validate them with `check.interval.specification()`. It checks that `start` and `end` are present and valid (`start < end`, non-missing start), that known parameter columns hold valid values, and it warns when a row requests no parameters. Unknown extra columns pass through untouched (deliberately, so grouping columns survive).
+Interval specifications are checked at two levels.
+
+`check.interval.specification()` checks the specification on its own: that `start` and `end` are present and valid (`start < end`, non-missing start), that known parameter columns hold valid values, and it warns when a row requests no parameters. Unknown extra columns pass through untouched (deliberately, so grouping columns survive).
 
 ```{r check-intervals}
 # A valid interval
@@ -255,18 +531,50 @@ valid_int <- data.frame(
   aucinf.obs = c(FALSE, TRUE),
   cmax       = c(FALSE, TRUE)
 )
-check.interval.specification(valid_int)
+valid_checked <- check.interval.specification(valid_int)
+
+# Every registered parameter column is filled in ...
+ncol(valid_checked)
+# ... but only the requested ones are TRUE
+valid_checked |>
+  select(where(~ !is.logical(.x) || any(.x)))
 ```
 
-```{r check-invalid, error=TRUE}
-# An invalid interval — start >= end
+An invalid interval (`start >= end`) is an error; here it is caught to show its class and message:
+
+```{r check-invalid}
 bad_int <- data.frame(
   start   = 24,
   end     = 0,
   auclast = TRUE
 )
-check.interval.specification(bad_int)
+tryCatch(
+  check.interval.specification(bad_int),
+  error = function(e) c(class = class(e)[1], message = conditionMessage(e))
+)
 ```
+
+`assert_intervals()` checks a specification against a `PKNCAdata` object, and `set_intervals()` checks it and then stores it in the object. They run whenever intervals are given to `PKNCAdata()`, and `pk.nca()` runs `assert_intervals()` again, so intervals assigned directly to `o_data$intervals` are checked too (≥ 0.13.0). Beyond the checks above, they require that every column is a group column, a parameter, the imputation column, `conc_above`, `tau`, `interval_id`, a `_ref` column, `interval_time_kind`, or listed in `keep_interval_cols`; that every `start` is finite and not missing; and that every `end` is after its `start` (`Inf` is allowed, but not missing, `NaN`, or `-Inf`). The errors name the offending columns or rows:
+
+```{r assert-intervals}
+o_data_check <- PKNCAdata(o_conc, o_dose, intervals = valid_int)
+
+# Replace the intervals after checking them
+o_data_check <- set_intervals(o_data_check, data.frame(start = 0, end = Inf, cmax = TRUE))
+o_data_check$intervals
+
+show_error <- function(expr) {
+  tryCatch(expr, error = function(e) c(class = class(e)[1], message = conditionMessage(e)))
+}
+# A column that is neither a group, a parameter, nor kept
+show_error(set_intervals(o_data_check, data.frame(start = 0, end = 24, auclast = TRUE, visit = 1)))
+# An end that is missing
+show_error(set_intervals(o_data_check, data.frame(start = 0, end = NA_real_, auclast = TRUE)))
+# An end before its start
+show_error(set_intervals(o_data_check, bad_int))
+```
+
+To carry an extra column such as `visit` into the results, list it in the `keep_interval_cols` option instead (see the [Workflow chapter](workflow.qmd)).
 
 `check.interval.specification()` returns the checked, column-completed specification — every registered parameter column filled in with its default — so it can be used inline before passing to `PKNCAdata()`:
 
@@ -299,5 +607,5 @@ as.data.frame(o_nca) |> head(8)
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [setDuration()](https://humanpred.github.io/pknca/reference/setDuration.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html) · [check.interval.specification()](https://humanpred.github.io/pknca/reference/check.interval.specification.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [pknca_interval_table()](https://humanpred.github.io/pknca/reference/pknca_interval_table.html) · [pknca_presets()](https://humanpred.github.io/pknca/reference/pknca_presets.html) · [pknca_parameter_table()](https://humanpred.github.io/pknca/reference/pknca_parameter_table.html) · [pknca_concepts()](https://humanpred.github.io/pknca/reference/pknca_concepts.html) · [pknca_tiers()](https://humanpred.github.io/pknca/reference/pknca_concepts.html) · [pknca_concept()](https://humanpred.github.io/pknca/reference/pknca_concept.html) · [pknca_check_parameter_classification()](https://humanpred.github.io/pknca/reference/pknca_check_parameter_classification.html) · [interval_add_param()](https://humanpred.github.io/pknca/reference/interval_add_param.html) · [interval_remove_param()](https://humanpred.github.io/pknca/reference/interval_add_param.html) · [interval_add_impute()](https://humanpred.github.io/pknca/reference/interval_add_impute.html) · [interval_remove_impute()](https://humanpred.github.io/pknca/reference/interval_add_impute.html) · [get_impute_column()](https://humanpred.github.io/pknca/reference/get_impute_column.html) · [get_impute_method()](https://humanpred.github.io/pknca/reference/get_impute_method.html) · [setDuration()](https://humanpred.github.io/pknca/reference/setDuration.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html) · [check.interval.specification()](https://humanpred.github.io/pknca/reference/check.interval.specification.html) · [assert_intervals()](https://humanpred.github.io/pknca/reference/assert_intervals.html) · [set_intervals()](https://humanpred.github.io/pknca/reference/set_intervals.html)
 :::

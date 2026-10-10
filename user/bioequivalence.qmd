@@ -1,0 +1,474 @@
+---
+title: "Bioequivalence"
+---
+
+```{r setup, include=FALSE}
+library(PKNCA)
+```
+
+Once NCA parameters such as C~max~ and AUC are calculated, a bioequivalence (BE) study compares a test formulation with a reference formulation using inferential statistics on those parameters. PKNCA (≥ 0.13.0) carries the analysis from `pk.nca()` results through to the regulatory decision: `be_assess()` takes a `PKNCAresults` object (or a tidy long data frame), a regulatory framework, and the reference formulation, and returns the geometric mean ratio (GMR), its confidence interval, the within-subject variability, the acceptance limits or criterion, and the pass/fail decision for each endpoint. `be_compare()` judges the same study under several frameworks side by side.
+
+This chapter goes from simulated concentrations to a BE table, then covers the regulatory frameworks, replicate and parallel designs, unequal variances, covariates, descriptive (food-effect and drug-drug interaction) comparisons, and BE from sparse sampling. See also the package vignette [Bioequivalence Calculations](https://humanpred.github.io/pknca/articles/v50-bioequivalence.html).
+
+---
+
+## Required packages
+
+The average-BE mixed model is fit with [`lme4`](https://cran.r-project.org/package=lme4) and [`lmerTest`](https://cran.r-project.org/package=lmerTest) (for Satterthwaite degrees of freedom), and the least-squares means come from [`emmeans`](https://cran.r-project.org/package=emmeans). These are *Suggested* packages of PKNCA, so install them before using the BE functions:
+
+```{r install, eval=FALSE}
+install.packages(c("lme4", "lmerTest", "emmeans"))
+```
+
+PKNCA itself still requires only R 4.1, but `lme4` depends on `Matrix`, and the current `Matrix` needs R 4.4, so in practice the BE functions need R ≥ 4.4. The `nlme` models used for unequal variances need no extra installation (`nlme` is a PKNCA dependency). All regulatory constants and criteria are built into PKNCA; neither `PowerTOST` nor `replicateBE` is required.
+
+---
+
+## The calculation path
+
+`be_assess()` and `be_compare()` are thin verbs over one calculation path, coordinated by `be_fit_models()`. Every stage is exported, so each can be called on its own:
+
+| Stage | Function | What it does |
+|---|---|---|
+| 1 | `be_dataset()` | Validates the data, takes the value from `PPSTRES` (or `PPORRES`) and its units, drops excluded and non-positive values, detects the subject, sequence, and period columns, and makes the reference the first treatment level |
+| 2 | `be_design()` | Classifies the design (`"parallel"`, `"2x2x2"`, `"full_replicate"`, `"partial_replicate"`, or `"other"`) and reports which frameworks it supports |
+| 3 | `be_fit_model_single()` | Fits the model for one endpoint (the only place models are fit) |
+| 4 | `be_extract_param()` | Extracts the geometric means, the GMR and its confidence interval, and the within-formulation standard deviations |
+| 5 | `be_table()` | Applies the regulatory limits or criterion and decides pass/fail |
+
+The supporting functions `be_regulator()` (the constants of each framework), `be_expand_limits()` (reference-scaled acceptance limits), and `be_within_var()` (within-subject standard deviations) are also exported.
+
+---
+
+## From concentrations to a BE table: a 2x2 crossover
+
+The classic BE design is a two-sequence, two-period crossover: each subject receives both the test (T) and reference (R) formulation in a randomized order (sequence RT or TR). We simulate 24 subjects from a one-compartment model with first-order absorption. Between-subject variability is on clearance, there is about 10% within-subject variability, and the test formulation has 5% lower bioavailability than the reference.
+
+```{r sim-2x2}
+set.seed(20261010)
+d_subjects <- data.frame(
+  subject = 1:24,
+  sequence = rep(c("RT", "TR"), 12),
+  cl_subject = 5 * exp(rnorm(24, sd = 0.25))
+)
+d_periods <- merge(d_subjects, data.frame(period = 1:2))
+d_periods$formulation <- substr(d_periods$sequence, d_periods$period, d_periods$period)
+d_periods$f_rel <- ifelse(d_periods$formulation == "T", 0.95, 1)
+d_periods$cl <- d_periods$cl_subject * exp(rnorm(nrow(d_periods), sd = 0.1))
+
+timepoints <- c(0, 0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24)
+d_conc <- merge(d_periods, data.frame(time = timepoints))
+d_conc <- d_conc[order(d_conc$subject, d_conc$period, d_conc$time), ]
+dose <- 100 # mg
+v <- 50     # L
+ka <- 1.1   # 1/hr
+ke <- d_conc$cl / v
+d_conc$conc <-
+  d_conc$f_rel * dose * ka / (v * (ka - ke)) * (exp(-ke * d_conc$time) - exp(-ka * d_conc$time)) *
+  exp(rnorm(nrow(d_conc), sd = 0.05))
+d_conc <- d_conc[, c("subject", "sequence", "period", "formulation", "time", "conc")]
+rownames(d_conc) <- NULL
+
+d_dose <- unique(d_conc[, c("subject", "sequence", "period", "formulation")])
+d_dose$dose <- dose
+d_dose$time <- 0
+
+head(d_conc)
+```
+
+The crossover structure goes into the grouping formula: sequence, period, and formulation are grouping variables, and the subject is the last one. Giving units means the BE table reports them.
+
+For the intervals, the `"bioequivalence"` preset of `pknca_interval_table()` (≥ 0.13.0) requests the usual BE parameters for a single extravascular dose: C~max~, T~max~, AUC~last~, AUC~all~, AUC~∞,obs~, and supporting parameters such as C~last~ and the half-life.
+
+```{r nca-2x2}
+pknca_presets()$bioequivalence
+
+o_conc <- PKNCAconc(
+  d_conc, conc ~ time | sequence + period + formulation + subject,
+  concu = "mg/L", timeu = "hr"
+)
+o_dose <- PKNCAdose(d_dose, dose ~ time | sequence + period + formulation + subject, doseu = "mg")
+d_intervals <- pknca_interval_table(start = 0, end = Inf, preset = "bioequivalence")
+o_data <- PKNCAdata(o_conc, o_dose, intervals = d_intervals)
+o_nca <- pk.nca(o_data)
+```
+
+### Classifying the design
+
+`be_dataset()` prepares the results for modeling: it standardizes the modeling columns (`.subject`, `.sequence`, `.period`, `.trt`, `.logval`) and makes the reference the first treatment level. The subject column comes from the `PKNCAconc` object, and `period` and `sequence` are found by name (pass `subject`, `sequence`, and `period` when your columns use other names). `be_design()` then classifies the design from one row per subject and period, so give it the rows of a single endpoint:
+
+```{r be-design-2x2}
+o_be_dataset <- be_dataset(
+  o_nca, reference_col = "formulation", reference_value = "R", endpoints = "cmax"
+)
+o_be_dataset
+d_be_cmax <- o_be_dataset$data[o_be_dataset$data$PPTESTCD == "cmax", ]
+
+o_be_design <- be_design(
+  d_be_cmax,
+  subject = o_be_dataset$columns$subject,
+  sequence = o_be_dataset$columns$sequence,
+  period = o_be_dataset$columns$period,
+  treatment = o_be_dataset$columns$treatment,
+  reference_value = "R"
+)
+o_be_design
+```
+
+`be_dataset()` keeps every parameter row of the results (here all the parameters of the preset); the endpoint filter is applied when each endpoint is fit.
+
+::: {.callout-warning}
+In the PKNCA development version documented here, `be_assess()` and `be_compare()` classify the design from all the rows of `be_dataset()`, which include every calculated parameter (or every `PPTESTCD` of a long data frame). A 2x2 crossover with several calculated parameters is then reported as `"full_replicate"`, and a parallel study with several parameters stops with an `lme4` error. Passing the design from `be_design()` on a single endpoint, as `design = o_be_design` below, gives the correct classification.
+:::
+
+### The BE assessment
+
+`be_assess()` takes the `PKNCAresults` object, the column that identifies the formulation (`reference_col`), the value of that column that is the reference (`reference_value`), the endpoints, and the framework. A 2x2 crossover does not replicate the reference, so average bioequivalence (`regulator = "ABE"`, the default) is the framework it supports.
+
+```{r be-2x2}
+o_be <- be_assess(
+  o_nca,
+  reference_col = "formulation",
+  reference_value = "R",
+  endpoints = c("cmax", "auclast", "aucinf.obs"),
+  regulator = "ABE",
+  design = o_be_design
+)
+o_be
+```
+
+The model was selected automatically: a crossover uses the mixed model (`model_type = "lmer"`)
+
+$$\log(\text{value}) = \text{sequence} + \text{period} + \text{formulation} + (1 \mid \text{subject})$$
+
+fit with `lmerTest::lmer()`, and the confidence interval is the exponentiated difference in least-squares means between test and reference. The GMRs are between about 90% and 95% (the simulated bioavailability ratio is 95%), and every 90% confidence interval lies within 80.00-125.00%, so all three endpoints pass.
+
+`summary()` gives the short decision table, and the `caption` attribute is a one-sentence methods statement suitable for a report:
+
+```{r be-2x2-summary}
+summary(o_be)
+attr(o_be, "caption")
+```
+
+The columns of `as.data.frame(o_be)` are:
+
+| Column | Meaning |
+|---|---|
+| `endpoint`, `test`, `n`, `design` | Endpoint, test formulation, number of subjects, and design |
+| `units` | Units of the endpoint, from the `PKNCAresults` object (omitted, with a warning, when there are no units) |
+| `gm_reference`, `gm_test` (and `_lower`, `_upper`) | Geometric means with their confidence intervals, on the measurement scale |
+| `gmr_percent`, `ci_lower`, `ci_upper` | GMR (test/reference) and its confidence interval, in percent |
+| `cvwr_percent`, `cvwt_percent`, `swr` | Within-reference and within-test CV, and the within-reference SD (used for reference scaling; `NA` for unscaled ABE) |
+| `limit_lower`, `limit_upper`, `criterion` | Acceptance limits (limit-based frameworks) or the linearized bound (FDA RSABE) |
+| `regulator`, `model_type`, `pass` | Framework, model, and decision |
+
+The `gm_*` intervals are marginal least-squares-mean intervals, so they include between-subject variability and are wider than the within-subject interval of the ratio. The confidence level is `1 - alpha`; the default `alpha = 0.10` gives the 90% interval that BE regulations use.
+
+::: {.callout-tip}
+Always give `endpoints`. The default, `c("cmax", "aucinf.obs", "aucinf.pred", "auclast")`, includes `aucinf.pred`, which is not calculated unless requested, and missing endpoints are skipped with a `pknca_warning_be_missing_endpoints` warning. Time and rate parameters (T~max~, half-life, λ~z~) are not log-normal exposure metrics: requesting them gives `pknca_warning_be_nonlognormal_endpoint`, because they need non-parametric or Fieller-type methods instead.
+:::
+
+### Running the remaining stages one at a time
+
+The fitting, extraction, and decision stages can also be called directly, which is useful for inspecting the fitted model. Continuing with the C~max~ rows from `be_dataset()`:
+
+```{r be-stages-fit}
+o_fit <- be_fit_model_single(d_be_cmax, model_type = "lmer", scaling = FALSE)
+d_params <- be_extract_param(o_fit, d_be_cmax)
+d_params$endpoint <- "cmax"
+be_table(d_params, regulator = "ABE", design = o_be_design$design, model_type = "lmer")[
+  , c("endpoint", "test", "gmr_percent", "ci_lower", "ci_upper", "pass")
+]
+```
+
+The C~max~ row matches the first row of `o_be` above. `o_fit$model` is the fitted `lmerTest` model, so the usual model diagnostics are available.
+
+---
+
+## Regulatory frameworks
+
+`be_regulator()` returns the constants of each framework, and it is the single source of these values for every decision:
+
+| `regulator` | Framework | Design required | Auto `model_type` |
+|---|---|---|---|
+| `"ABE"` | Average BE: 90% CI within 80.00-125.00% | test and reference | `"lmer"` (crossover, replicate) or `"anova"` (parallel) |
+| `"EMA"` | Average BE with expanding limits (ABEL), k = 0.76, cap at CV~wR~ 50% | replicated reference | `"lmer"` |
+| `"HC"` | Health Canada ABEL, k = 0.76, cap at CV~wR~ 57.382% (upper limit 150%) | replicated reference | `"lmer"` |
+| `"GCC"` | Gulf Cooperation Council: fixed 75.00-133.33% when CV~wR~ > 30% | replicated reference | `"lmer"` |
+| `"FDA"` | FDA reference-scaled average BE (RSABE), linearized criterion, scaling when s~wR~ ≥ 0.294 | replicated reference | `"isc"` |
+| `"NTID"` | FDA narrow therapeutic index: scaled bound, conventional 90% CI, and upper 90% bound of s~wT~/s~wR~ ≤ 2.5 | full replicate | `"isc"` |
+| `"HVNTID"` | FDA highly variable NTID: conventional 90% CI and the s~wT~/s~wR~ bound | full replicate | `"isc"` |
+| `"descriptive"` | No decision: estimates as for `"ABE"`, no limits or pass/fail | test and reference | as for `"ABE"` |
+
+All decision frameworks also require the point estimate to fall within 80.00-125.00%. The FDA frameworks use intra-subject contrasts (`"isc"`) for the GMR, as the guidances specify, regardless of the design.
+
+```{r regulator}
+be_regulator("EMA")
+be_regulator("FDA")
+```
+
+`be_expand_limits()` gives the acceptance limits of the ABEL frameworks for a within-reference standard deviation s~wR~ (on the log scale). Below CV~wR~ = 30% they are the conventional 80.00-125.00%; above it EMA and Health Canada widen with s~wR~ up to their caps, while the GCC switches to a fixed band:
+
+```{r expand-limits}
+cvwr <- c(0.25, 0.35, 0.45, 0.50, 0.60)
+swr <- sqrt(log(cvwr^2 + 1))
+d_limits <- data.frame(cvwr_percent = 100 * cvwr, swr = round(swr, 4))
+for (regulator in c("EMA", "HC", "GCC")) {
+  limits <- vapply(swr, be_expand_limits, numeric(2), regulator = regulator)
+  d_limits[[regulator]] <- sprintf("%.2f-%.2f", limits["lower", ], limits["upper", ])
+}
+d_limits
+```
+
+Both EMA and Health Canada use k = 0.76, so their limits agree up to CV~wR~ = 50%. Above that the EMA limits stay at their cap of 69.84-143.19%, while the Health Canada limits keep widening to their cap at CV~wR~ = 57.382%; at 60% both are capped (66.67-150.00% for Health Canada). The GCC band does not depend on CV~wR~ once it exceeds 30%.
+
+---
+
+## Replicate designs and reference scaling
+
+Highly variable drugs (within-subject CV above 30%) rarely meet the fixed 80.00-125.00% limits, so the scaled frameworks widen the limits (or scale the criterion) by the within-reference variability. Estimating that variability needs the reference given more than once: a replicate design.
+
+`be_assess()` also accepts a tidy long data frame in the layout of `as.data.frame()` on PKNCA results: a `PPTESTCD` column of parameter names, a `PPORRES` (or `PPSTRES`) column of values, an optional `PPORRESU` (or `PPSTRESU`) column of units, and the subject, sequence, period, and treatment columns. Here we simulate the AUC~last~ of a four-period full replicate design (sequences TRTR and RTRT) with a within-reference CV of 45% and a within-test CV of 40%.
+
+```{r sim-replicate}
+set.seed(20251015)
+d_rep_subjects <- data.frame(
+  subject = 1:24,
+  sequence = rep(c("TRTR", "RTRT"), 12),
+  eta = rnorm(24, sd = 0.4)
+)
+d_rep <- merge(d_rep_subjects, data.frame(period = 1:4))
+d_rep <- d_rep[order(d_rep$subject, d_rep$period), ]
+d_rep$treatment <- substr(d_rep$sequence, d_rep$period, d_rep$period)
+sw <- ifelse(d_rep$treatment == "R", sqrt(log(0.45^2 + 1)), sqrt(log(0.40^2 + 1)))
+d_rep$PPTESTCD <- "auclast"
+d_rep$PPORRES <-
+  exp(log(100) + ifelse(d_rep$treatment == "T", log(1.05), 0) + d_rep$eta + rnorm(nrow(d_rep), sd = sw))
+d_rep$PPORRESU <- "hr*ng/mL"
+d_rep$eta <- NULL
+
+be_design(d_rep, "subject", "sequence", "period", "treatment", reference_value = "R")
+```
+
+`be_within_var()` estimates the within-subject standard deviations for one endpoint. Its default `model_type = "anova"` is the regulatory ANOVA estimator on each formulation's replicates (it works for full and partial replicates); `model_type = "nlme"` fits one mixed model with treatment-specific residual variances and needs a full replicate.
+
+```{r within-var}
+be_within_var(
+  d_rep, value = "PPORRES", subject = "subject", period = "period",
+  treatment = "treatment", reference_value = "R"
+)
+```
+
+Under the EMA framework the limits widen with the estimated s~wR~. The estimated CV~wR~ (52.29%) is above the EMA cap of 50%, so the limits are the capped 69.84-143.19%:
+
+```{r be-ema}
+o_be_ema <- be_assess(
+  d_rep, reference_col = "treatment", reference_value = "R",
+  endpoints = "auclast", regulator = "EMA"
+)
+o_be_ema
+```
+
+The FDA RSABE framework reports the linearized (Howe/Hyslop) upper bound in `criterion` instead of limits; it passes when the bound is at most zero (and the point estimate is within 80.00-125.00%):
+
+```{r be-fda}
+o_be_fda <- be_assess(
+  d_rep, reference_col = "treatment", reference_value = "R",
+  endpoints = "auclast", regulator = "FDA"
+)
+as.data.frame(o_be_fda)[, c("gmr_percent", "ci_lower", "ci_upper", "cvwr_percent", "swr", "criterion", "pass")]
+```
+
+### Comparing frameworks
+
+`be_compare()` runs the same study under several frameworks at once (the default is `c("ABE", "EMA", "HC", "GCC", "FDA")`), and `summary()` gives the endpoint-by-regulator pass/fail grid:
+
+```{r be-compare}
+o_be_compare <- be_compare(
+  d_rep, reference_col = "treatment", reference_value = "R",
+  endpoints = "auclast",
+  regulators = c("ABE", "EMA", "HC", "GCC", "FDA", "NTID", "HVNTID")
+)
+o_be_compare
+summary(o_be_compare)
+```
+
+Every framework passes for these data, but the limits differ: the Health Canada limits (68.82-145.30%) are wider than the capped EMA limits, and the GCC uses its fixed 75.00-133.33%. The FDA family reports the intra-subject-contrast interval (82.46-106.24%) rather than the mixed-model interval (81.78-107.12%). With a GMR or variability nearer the limits, the decision can differ between frameworks for the same data. A framework that the design cannot support is skipped with a `pknca_warning_be_skipped_framework` warning (or, with `be_assess()`, stops with `pknca_error_be_infeasible_design`). For example, the 2x2 crossover from the start of the chapter cannot support EMA scaling:
+
+```{r be-compare-skip}
+be_compare(
+  o_nca, reference_col = "formulation", reference_value = "R",
+  endpoints = "cmax", regulators = c("ABE", "EMA"), design = o_be_design
+)
+```
+
+PKNCA assesses a completed study; power and sample-size planning for these designs is covered by the [`PowerTOST`](https://cran.r-project.org/package=PowerTOST) package.
+
+---
+
+## Parallel designs
+
+In a parallel design each subject receives one formulation, so there is no within-subject comparison. `be_assess()` detects one observation per subject and fits a fixed-effects ANOVA (`model_type = "anova"`) without a subject term. A `period` column is still required (here every subject is in period 1), and `sequence` may be absent.
+
+```{r sim-parallel}
+set.seed(20261015)
+d_parallel <- data.frame(
+  subject = 1:40,
+  period = 1,
+  treatment = rep(c("R", "T"), each = 20),
+  PPTESTCD = "cmax",
+  PPORRESU = "ng/mL"
+)
+d_parallel$PPORRES <-
+  exp(log(50) + ifelse(d_parallel$treatment == "T", log(1.02), 0) +
+        rnorm(40, sd = ifelse(d_parallel$treatment == "T", 0.35, 0.2)))
+
+o_be_parallel <- be_assess(
+  d_parallel, reference_col = "treatment", reference_value = "R", endpoints = "cmax"
+)
+summary(o_be_parallel)
+```
+
+The confidence interval is wide because between-subject variability is part of every comparison in a parallel design.
+
+---
+
+## Unequal variances, covariates, and descriptive comparisons
+
+Three options of `be_assess()`, `be_compare()`, and `be_fit_models()` (all ≥ 0.13.0) extend the same path beyond the standard BE decision.
+
+**`heteroscedastic = TRUE`** estimates a separate residual variance for each treatment. Crossover and replicate studies use `nlme::lme()` with `varIdent(~ 1 | treatment)` (`model_type = "nlme"`), and parallel studies use `nlme::gls()` with the same variance structure and Satterthwaite degrees of freedom (`model_type = "gls"`). The simulated parallel study above has a more variable test arm (SD 0.35 on the log scale versus 0.2):
+
+```{r heteroscedastic-parallel}
+o_be_parallel_het <- be_assess(
+  d_parallel, reference_col = "treatment", reference_value = "R", endpoints = "cmax",
+  heteroscedastic = TRUE
+)
+summary(o_be_parallel_het)
+```
+
+The point estimate is unchanged. With equal arm sizes the standard error of the ratio is also the same as in the pooled-variance ANOVA; only the Satterthwaite degrees of freedom are lower, so the interval is slightly wider. With unequal arm sizes the standard error changes as well.
+
+`lme4::lmer()` fits a single residual variance, so `heteroscedastic = TRUE` with `model_type = "lmer"` is an error (`pknca_error_be_heteroscedastic_lmer`), as are `"nlme"` for a parallel design and `"gls"` for repeated measures. Without reference scaling, the `nlme` model accepts non-replicated crossovers and several test formulations; with reference scaling it needs a fully replicated design.
+
+**`covariates`** names columns added to every model as additive fixed effects (numeric columns as linear terms, character or factor columns as factors). The least-squares means are then at the mean of numeric covariates. Covariates must not be missing in any analyzed row, and missing, constant, or aliased covariates are errors. For a `PKNCAresults` object they must be columns of `as.data.frame()` of the results, which means grouping columns. The intra-subject contrasts of the FDA frameworks and the within-subject variances for reference scaling do not use covariates (the FDA frameworks warn with `pknca_warning_be_covariates_isc`).
+
+**`regulator = "descriptive"`** estimates the geometric means, their ratio, and its confidence interval exactly as `"ABE"` does, but applies no acceptance limits and reports no `pass` column. It is meant for comparisons that are estimated rather than judged, such as food-effect and drug-drug interaction studies.
+
+As an example, a fed/fasted food-effect crossover where the fed state is more variable is summarized descriptively, with treatment-specific variances and body weight as a covariate:
+
+```{r food-effect}
+set.seed(20260927)
+d_food_subjects <- data.frame(
+  subject = 1:20,
+  sequence = rep(c("FastedFed", "FedFasted"), 10),
+  weight = round(rnorm(20, mean = 75, sd = 12)),
+  eta = rnorm(20, sd = 0.3)
+)
+d_food <- merge(d_food_subjects, data.frame(period = 1:2))
+d_food$state <- ifelse(
+  (d_food$sequence == "FastedFed") == (d_food$period == 1), "Fasted", "Fed"
+)
+d_food$PPTESTCD <- "cmax"
+d_food$PPORRESU <- "ng/mL"
+d_food$PPORRES <-
+  exp(log(50) + ifelse(d_food$state == "Fed", log(1.4), 0) + 0.01 * (d_food$weight - 75) +
+        d_food$eta + rnorm(nrow(d_food), sd = ifelse(d_food$state == "Fed", 0.35, 0.15)))
+
+o_food <- be_assess(
+  d_food, reference_col = "state", reference_value = "Fasted", endpoints = "cmax",
+  regulator = "descriptive", heteroscedastic = TRUE, covariates = "weight"
+)
+o_food
+```
+
+The table has no `limit_lower`, `limit_upper`, `criterion`, or `pass` columns, and its caption records the model and covariate and states that no regulatory decision was applied.
+
+---
+
+## BE from sparse sampling: the bootstrap route
+
+With sparse sampling (for example, serial sacrifice in toxicokinetic studies) there is one AUC estimate per treatment, not one per subject, so the mixed models above do not apply. `sparse_bootstrap()` (≥ 0.13.0) resamples the animals with the stratified nonparametric bootstrap of Shen and Machado (2017), and `be_assess()` on the bootstrap results gives the ratio of the test and reference estimates with the percentile interval of the replicate ratios (`model_type = "bootstrap"`). See [Sparse PK Sampling](sparse.qmd) for the sparse methods and `sparse_bootstrap()` itself.
+
+In this crossover each animal receives both treatments and is sampled at the same time after each, so an animal's two concentrations are correlated (they share an animal effect). Giving the treatment column as `paired` keeps each animal's samples from both treatments together in every replicate:
+
+```{r sparse-bootstrap}
+set.seed(20261012)
+d_sparse <- data.frame(time = rep(c(0, 0.5, 1, 2, 4, 8, 24), each = 4))
+d_sparse$animal <- seq_len(nrow(d_sparse))
+eta_animal <- rnorm(nrow(d_sparse), sd = 0.2)
+conc_mean <- 10 * (exp(-0.15 * d_sparse$time) - exp(-1.5 * d_sparse$time))
+d_sparse_xover <- rbind(
+  data.frame(d_sparse, treatment = "R",
+             conc = conc_mean * exp(eta_animal + rnorm(nrow(d_sparse), sd = 0.05))),
+  data.frame(d_sparse, treatment = "T",
+             conc = 1.05 * conc_mean * exp(eta_animal + rnorm(nrow(d_sparse), sd = 0.05)))
+)
+
+o_conc_sparse <- PKNCAconc(
+  d_sparse_xover, conc ~ time | treatment + animal, sparse = TRUE,
+  concu = "ng/mL", timeu = "hr"
+)
+o_conc_boot <- sparse_bootstrap(o_conc_sparse, n_boot = 300, seed = 20261012, paired = "treatment")
+o_nca_boot <- pk.nca(PKNCAdata(
+  o_conc_boot,
+  intervals = data.frame(start = 0, end = 24, auclast = TRUE, cmax = TRUE),
+  # The sparse AUC uses the linear trapezoidal rule
+  options = list(progress = FALSE, auc.method = "linear")
+))
+o_be_boot <- be_assess(
+  o_nca_boot, reference_col = "treatment", reference_value = "R",
+  endpoints = c("auclast", "cmax")
+)
+o_be_boot
+```
+
+The `gm_*` columns are the estimates of each treatment from the original data with their percentile intervals, `n` is the number of animals, and the caption records the number of replicates. The ratios (104.20% for AUC~last~ and 101.68% for C~max~; the simulated ratio is 105%) have narrow percentile intervals because pairing cancels the animal effect.
+
+Without `paired`, the treatments are resampled independently, as for a parallel design. The animal effect then no longer cancels, and the intervals are much wider:
+
+```{r sparse-bootstrap-unpaired}
+o_nca_boot_unpaired <- pk.nca(PKNCAdata(
+  sparse_bootstrap(o_conc_sparse, n_boot = 300, seed = 20261012),
+  intervals = data.frame(start = 0, end = 24, auclast = TRUE, cmax = TRUE),
+  options = list(progress = FALSE, auc.method = "linear")
+))
+summary(be_assess(
+  o_nca_boot_unpaired, reference_col = "treatment", reference_value = "R",
+  endpoints = c("auclast", "cmax")
+))
+```
+
+`alpha` sets the confidence level of the percentile intervals as usual; for example, `alpha = 0.05` gives the 2.5th and 97.5th percentiles (a 95% interval):
+
+```{r sparse-bootstrap-95}
+summary(be_assess(
+  o_nca_boot, reference_col = "treatment", reference_value = "R",
+  endpoints = c("auclast", "cmax"), alpha = 0.05
+))
+```
+
+The AUC~last~ interval widens, but the C~max~ interval is the same as the 90% interval. C~max~ of a sparse profile is the maximum of the mean concentrations, so in this small study its replicate ratios take only a few distinct values, and the 2.5th and 5th (and the 95th and 97.5th) percentiles fall on the same value.
+
+The bootstrap route has its own rules:
+
+* There is no within-subject variance, so only `"ABE"` and `"descriptive"` apply; a scaled framework stops with `pknca_error_be_bootstrap_scaled`, and `design` and `heteroscedastic` cannot be given.
+* The results may have no groups other than `reference_col` (and the replicate column); filter other groups first.
+* The default of 200 replicates is enough for means and standard deviations; percentile intervals need more replicates to be stable, so use more than the 300 shown here (which keep this page quick to render) for a reported analysis.
+
+---
+
+## Reporting checklist
+
+1. **Framework and model**: the `regulator` and `model_type` columns, and the `caption` attribute as the methods statement.
+2. **GMR, confidence interval, within-subject CV, limits or criterion, decision**: one row per endpoint and test formulation in `as.data.frame(be_assess(...))`.
+3. **Cross-regulator comparison**: `summary(be_compare(...))`.
+4. **Individual data**: `as.data.frame()` of the `PKNCAresults` object for listings and figures.
+
+The bootstrap method is from Shen M, Machado SG (2017). Bioequivalence evaluation of sparse sampling pharmacokinetics data using bootstrap resampling method. *Journal of Biopharmaceutical Statistics*, 27(2):257-264.
+
+---
+
+::: {.callout-note icon=false appearance="minimal"}
+**pkgdown reference:** [be_assess()](https://humanpred.github.io/pknca/reference/be_assess.html) · [be_compare()](https://humanpred.github.io/pknca/reference/be_compare.html) · [be_fit_models()](https://humanpred.github.io/pknca/reference/be_fit_models.html) · [be_dataset()](https://humanpred.github.io/pknca/reference/be_dataset.html) · [be_design()](https://humanpred.github.io/pknca/reference/be_design.html) · [be_fit_model_single()](https://humanpred.github.io/pknca/reference/be_fit_model_single.html) · [be_extract_param()](https://humanpred.github.io/pknca/reference/be_extract_param.html) · [be_table()](https://humanpred.github.io/pknca/reference/be_table.html) · [be_regulator()](https://humanpred.github.io/pknca/reference/be_regulator.html) · [be_expand_limits()](https://humanpred.github.io/pknca/reference/be_expand_limits.html) · [be_within_var()](https://humanpred.github.io/pknca/reference/be_within_var.html) · [pknca_presets()](https://humanpred.github.io/pknca/reference/pknca_presets.html) · [pknca_interval_table()](https://humanpred.github.io/pknca/reference/pknca_interval_table.html) · [sparse_bootstrap()](https://humanpred.github.io/pknca/reference/sparse_bootstrap.html) · [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html)
+:::

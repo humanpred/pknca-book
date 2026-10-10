@@ -55,7 +55,7 @@ For each item, classify it:
 |---|---|
 | New NCA parameter | new `add.interval.col()` entry |
 | New option | new key in `PKNCA.options()` |
-| New function | e.g. `normalize()` in 0.12.2 |
+| New function | e.g. `be_assess()` in 0.13.0 |
 | Changed behavior | existing function works differently |
 | Bug fix | may invalidate an existing example |
 
@@ -102,9 +102,10 @@ as.data.frame(o_nca) |>
 
 **Known gotchas:**
 
-- **Tobit half-life** — set `lloq` on `PKNCAconc()`; in PKNCA ≥ 0.12.2 it is passed through to `pk.calc.half.life()` automatically, so the full `pk.nca()` pipeline works with `options = list(hl_method = "tobit")`. (Older versions required calling `pk.calc.half.life()` directly.)
-- **Sparse AUMC** — only set `sparse_aumclast = TRUE`. Explicitly requesting `sparse_auc_se = TRUE` alongside it triggers an internal type error.
-- **`normalize()`** — replaces the original parameters (does not append). To keep both, `bind_rows()` before and after.
+- **Tobit half-life** — set `lloq` on `PKNCAconc()`; in PKNCA ≥ 0.13.0 it is passed through to `pk.calc.half.life()` automatically, so the full `pk.nca()` pipeline works with `options = list(hl_method = "tobit")`. (Older versions required calling `pk.calc.half.life()` directly.)
+- **Sparse parameters** — use the standard names (`auclast`, `aucinf.obs`, …); with `PKNCAconc(sparse = TRUE)` their `_se` and `_df` companions are calculated with them. The `sparse_*` names are deprecated.
+- **Tobit with imputation** — until the LLOQ is carried onto imputed rows (pknca PR 678), combining `hl_method = "tobit"` with `impute = "start_conc0"` errors; examples show Tobit without imputation.
+- **`normalize()`** — on a data frame it replaces the original parameters (does not append); on a `PKNCAresults` object it appends the normalized rows.
 - **New option defaults** — always verify with `PKNCA.options("option_name")` before documenting the default.
 
 ---
@@ -131,7 +132,7 @@ as.data.frame(o_nca) |>
 - Add new sections or update existing ones in the relevant `.qmd` files.
 - Tag new features with `(≥ X.Y.Z)` so readers know when they were introduced.
 - Keep the shared dataset pattern consistent across pages.
-- If the new version introduces new functions, add them to the `:::callout-note` pkgdown reference footer at the bottom of the relevant chapter(s). The link pattern is `[function()]( https://humanpred.github.io/pknca/reference/function.html)`.
+- If the new version introduces new functions, add them to the `:::callout-note` pkgdown reference footer at the bottom of the relevant chapter(s). The link pattern is `[function()](https://humanpred.github.io/pknca/reference/function.html)`.
 
 ---
 
@@ -141,7 +142,7 @@ as.data.frame(o_nca) |>
 quarto render
 ```
 
-- Watch for **red error output** in the console — chunks that error are flagged even though `execute: error: false` suppresses them in the HTML output.
+- Watch for **red error output** in the console — with `execute: error: false`, a chunk that errors stops the render.
 - Fix the code, not the error suppression.
 
 Then open the book and spot-check every updated page:
@@ -210,26 +211,32 @@ Template:
 ```
 _quarto.yml          # book config (title, author, chapters)
 index.qmd            # introduction + What's new
-user/                # 19 User Guide chapters
-  workflow.qmd       # PKNCAconc → PKNCAdose → PKNCAdata → pk.nca; all options
-  intervals.qmd      # interval data frame; full parameter catalog
-  auc-methods.qmd    # AUC types; integration methods; AUMC; aucabove; time_above
-  halflife.qmd       # λz regression; Tobit; quality filters; lambda.z.corrxy
-  extravascular.qmd  # oral/SC; BLQ; tmin; lag time
-  intravascular.qmd  # IV bolus; C0; IV infusion; ceoi; MRT
-  multiple-dose.qmd  # steady-state parameters; tau detection
-  superposition.qmd  # predicting multiple-dose from single-dose
-  tss.qmd            # time to steady state
-  urine-excretion.qmd# ae; fe; clr; volpk; ermax; ertmax; ertlst; clr.*.dn
-  sparse.qmd         # sparse_auclast; sparse AUMC; derived sparse params
-  postprocessing.qmd # exclude(); normalize(); .dn parameters; PKNCA.set.summary
-  units.qmd          # pknca_units_table(); preferred units; conversions
-  imputation.qmd     # built-in imputation methods; custom methods
-  dose-aware-interpolation.qmd  # interp.extrap.conc.dose; .dose AUCint variants
-  custom-parameters.qmd         # add.interval.col(); registering new parameters
-  utilities.qmd      # geomean; geocv; clean.conc.*; assert_conc_time
-  regulatory.qmd     # PP domain; PPEXCLFL; summary() for CSR tables
-  validation.qmd     # testthat suite; version pinning; spot-checks
+user/                # 25 User Guide chapters (order in _quarto.yml)
+  workflow.qmd                  # PKNCAconc → PKNCAdose → PKNCAdata → pk.nca
+  intervals.qmd                 # Interval data frame
+  auto-intervals.qmd            # Interval builder vs legacy
+  auc-methods.qmd               # auclast/aucall/aucinf
+  halflife.qmd                  # Point selection controls
+  extravascular.qmd             # BLQ handling
+  intravascular.qmd             # IV bolus
+  multiple-dose.qmd             # deg.fluc
+  superposition.qmd             # Predicting multiple-dose profiles from single-dose data
+  tss.qmd                       # pk.tss.monoexponential
+  urine-excretion.qmd           # ae
+  secondary-parameters.qmd      # interval_id/_ref
+  sparse.qmd                    # Serial/batch designs
+  sparse-uncertainty.qmd        # Yuan vs delta method (sparse_lambda_z_se)
+  bioequivalence.qmd            # be_assess()
+  data-quality.qmd              # pknca_missing_samples()
+  postprocessing.qmd            # exclude()
+  units.qmd                     # pknca_units_table()
+  datetime.qmd                  # POSIXct/Date times
+  imputation.qmd                # start_conc0
+  dose-aware-interpolation.qmd  # interp.extrap.conc.dose
+  custom-parameters.qmd         # add.interval.col()
+  utilities.qmd                 # clean.conc.*
+  regulatory.qmd                # CDISC output
+  validation.qmd                # testthat suite
 dev/                 # Developer Reference
   architecture.qmd   # class hierarchy; interval column system; formalsmap
   function-deps.qmd  # parameter dependency graph

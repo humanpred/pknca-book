@@ -37,7 +37,7 @@ d_dose      <- Theoph_df |>
   filter(Time == 0) |>
   mutate(amt = Dose * Wt)
 
-# Without imputation there is no concentration at the interval start
+# No concentration remains at the dose time (the interval start)
 o_conc <- PKNCAconc(d_conc_no0, conc ~ Time | Subject)
 o_dose <- PKNCAdose(d_dose, amt ~ Time | Subject)
 ```
@@ -49,30 +49,56 @@ d_conc_no0 |>
   head(5)
 ```
 
+### Imputation in the automatic intervals
+
+When `PKNCAdata()` generates the intervals itself (no `intervals` argument), each interval already carries an imputation method in an `impute` column (≥ 0.13.0): `start_predose_conc0` after a single dose, `start_cmin` or `start_predose` for a dosing interval, none for the back-extrapolated `c0` after an intravenous bolus, and only `start_conc0` (single dose) or nothing for sparse data. The `impute` argument of `PKNCAdata()` keeps its default of `NA`, which means "read the column named `impute`":
+
+```{r}
+o_data_auto <- PKNCAdata(o_conc, o_dose)
+o_data_auto$impute
+o_data_auto$intervals |>
+  filter(Subject == "1") |>
+  select(Subject, start, end, impute)
+```
+
+So with these data, a plain `pk.nca(o_data_auto)` already imputes a concentration at time 0. Passing a method string as `impute`, as the examples below do, applies that method to every interval instead of the column. The intervals themselves are described in the [Interval Selection chapter](intervals.qmd) and the [Automatic Intervals and Dosing Regimens chapter](auto-intervals.qmd). Before 0.13.0, the automatic intervals had no imputation. With `auto.interval.method = "legacy"`, which restores that behavior, these data give `NA` for `auclast` and `aucinf.obs`, excluded with the reason that the interval starts (at 0) before the first measurement.
+
 ---
 
-## The three built-in start-of-interval strategies
+## The built-in imputation methods
 
-You can inspect the signatures with `args()`:
+`pknca_impute_methods()` (≥ 0.13.0) lists the built-in methods with the names that imputation strings use, a one-line description, and their arguments:
+
+```{r}
+d_methods <- pknca_impute_methods()
+d_methods$method
+d_methods$description
+```
+
+| Name | String to use | What it does |
+|------|--------------|--------------|
+| `PKNCA_impute_method_start_conc0` | `"start_conc0"` | Sets the concentration at the interval start to 0, adding a row if there is none and **replacing** a measured value if there is one |
+| `PKNCA_impute_method_start_predose` | `"start_predose"` | When there is no concentration at the start, shifts the most recent predose concentration (within `max_shift`) to the start |
+| `PKNCA_impute_method_start_cmin` | `"start_cmin"` | When there is no concentration at the start, adds the minimum concentration observed within the interval there |
+| `PKNCA_impute_method_start_predose_conc0` | `"start_predose_conc0"` | Keeps a concentration measured at the start; otherwise shifts a predose concentration there like `start_predose`; otherwise adds 0 (≥ 0.13.0) |
+| `PKNCA_impute_method_end_conc_drop` | `"end_conc_drop"` | Drops a concentration measured exactly at the interval end from that interval (≥ 0.13.0) |
+
+The four `start_*` methods act at the **start** of the interval; `end_conc_drop` acts at its end. You can inspect the signatures with `args()`:
 
 ```{r}
 args(PKNCA_impute_method_start_conc0)
 args(PKNCA_impute_method_start_predose)
 args(PKNCA_impute_method_start_cmin)
+args(PKNCA_impute_method_start_predose_conc0)
+args(PKNCA_impute_method_end_conc_drop)
 ```
-
-| Name | String to use | What it does |
-|------|--------------|--------------|
-| `PKNCA_impute_method_start_conc0` | `"start_conc0"` | Inserts a concentration of 0 at the interval start time |
-| `PKNCA_impute_method_start_predose` | `"start_predose"` | Uses the last observed concentration before the interval start |
-| `PKNCA_impute_method_start_cmin` | `"start_cmin"` | Uses the minimum concentration observed within the interval |
-
-All three built-in methods impute a concentration at the **start** of the interval; newer development versions of PKNCA also provide `PKNCA_impute_method_end_conc_drop`, which instead drops a next-dose sample observed exactly at the interval end (not shown here, as it is not yet in a released version).
 
 ### `start_conc0` — zero concentration at interval start
 
 Appropriate in a single-dose setting when no drug is expected before dosing.
-The drug concentration at time 0 is assumed to be 0.
+The drug concentration at time 0 is assumed to be 0. A concentration measured
+at the start time is replaced with 0, so a nonzero time-0 sample (3 of the 12
+`Theoph` subjects have one) is discarded.
 
 ```{r}
 o_data_c0 <- PKNCAdata(o_conc, o_dose, impute = "start_conc0")
@@ -114,9 +140,43 @@ o_data_cmin <- PKNCAdata(o_conc, o_dose, impute = "start_cmin")
 o_data_cmin$impute
 ```
 
-### The three strategies side by side
+### `start_predose_conc0` — predose if available, otherwise zero
 
-Running all three on subject 1 (whose first sample is at t = 0.25) makes the
+Appropriate whenever you want a predose concentration used when one exists and
+zero when it does not (≥ 0.13.0); it is what the automatic single-dose interval
+uses. It also keeps a concentration measured at the start time, which matters
+after an intravenous bolus, where that measurement is the C0 for the dose.
+The [chaining section](#chaining-methods) below shows why the chain
+`"start_predose,start_conc0"` does not do the same thing.
+
+```{r}
+o_data_pdc0 <- PKNCAdata(o_conc, o_dose, impute = "start_predose_conc0")
+o_data_pdc0$impute
+```
+
+### `end_conc_drop` — drop a concentration at the interval end
+
+The other methods add or change a point at the start of the interval;
+`end_conc_drop` (≥ 0.13.0) removes a concentration observed exactly at the
+interval `end`. It is meant for multiple-dose data where a sample at the
+boundary belongs to the next dose, for example a post-dose concentration (or an
+imputed C0) recorded at the time the next dose was given. Called directly, it
+drops the 24 h point:
+
+```{r}
+PKNCA_impute_method_end_conc_drop(
+  conc = c(10, 7, 5, 3, 11),
+  time = c(0, 2, 6, 12, 24),
+  end  = 24
+)
+```
+
+In an analysis, combine it with a start method in a chain, such as
+`"start_predose,end_conc_drop"`.
+
+### The start strategies side by side
+
+Running the four start methods on subject 1 (whose first sample is at t = 0.25) makes the
 differences concrete:
 
 ```{r}
@@ -133,8 +193,9 @@ auclast_with <- function(method) {
 }
 
 bind_rows(auclast_with("start_conc0"),
-                 auclast_with("start_predose"),
-                 auclast_with("start_cmin"))
+          auclast_with("start_predose"),
+          auclast_with("start_cmin"),
+          auclast_with("start_predose_conc0"))
 ```
 
 `start_conc0` adds conc = 0 at t = 0, while `start_cmin` adds the minimum
@@ -143,6 +204,8 @@ so `start_cmin` gives the slightly larger AUC. `start_predose` looks for a
 sample at or before the interval start, and this dataset has none: it imputes
 nothing, the interval still has no concentration at its start time, and
 `auclast` is `NA` (the warning printed by the chunk explains why).
+`start_predose_conc0` finds no predose sample either, falls back to adding a
+zero, and so matches `start_conc0`.
 
 ---
 
@@ -151,7 +214,8 @@ nothing, the interval still has no concentration at its start time, and
 The single-strategy examples above already used the global form: pass a method
 name string to the `impute` argument of `PKNCAdata()`, and the same strategy is
 applied to every subject and every interval — the side-by-side comparison
-restricted itself to subject 1 only to keep the output small.
+restricted itself to subject 1 only to keep the output small. With automatic
+intervals, the string replaces the methods in their `impute` column.
 
 ```{r}
 o_data_global <- PKNCAdata(o_conc, o_dose, impute = "start_conc0")
@@ -170,42 +234,86 @@ df_global |>
 
 ---
 
-## Chaining methods
+## Chaining methods {#chaining-methods}
 
-The side-by-side comparison left `start_predose` with an `NA` because this
-dataset has no pre-dose sample. Chaining resolves exactly that situation:
-provide a comma-separated string to apply methods in sequence. Methods are
-applied in order; a later method has no effect if an earlier one already
-added a point at the interval start.
+Provide a comma-separated string to apply several methods to the same
+interval. Methods are applied **in order, left to right, each to the output of
+the previous one**, so a later method sees, and can change, what an earlier
+one did:
+
+- `start_predose`, `start_cmin`, and `start_predose_conc0` only add a point
+  when there is no concentration at the start yet, so after an earlier method
+  has supplied one they have no effect.
+- `start_conc0` sets the start concentration to 0 whether or not one is
+  there, so it **overwrites** whatever an earlier method shifted or added.
+  `"start_predose,start_conc0"` therefore always gives the same result as
+  `"start_conc0"` alone.
+
+To use a predose concentration when one exists and zero otherwise, use
+`start_predose_conc0` rather than a chain. Three small profiles make the
+difference concrete: one with a predose sample at −0.25 h, one whose first
+sample is at 0.5 h, and one with a concentration measured at the dose time:
 
 ```{r}
-# Try start_predose first; if it cannot find a pre-dose observation,
-# fall back to inserting zero
-o_data_chain <- PKNCAdata(o_conc, o_dose,
-                          impute = "start_predose,start_conc0")
-o_data_chain$impute
+d_conc_pd <- data.frame(
+  Subject = rep(c("predose", "no_predose", "c0_measured"), c(7, 6, 7)),
+  time = c(-0.25, 0.5, 1, 2, 4, 8, 24,
+           0.5, 1, 2, 4, 8, 24,
+           0, 0.5, 1, 2, 4, 8, 24),
+  conc = c(2.0, 4.0, 6.0, 5.5, 4.0, 2.5, 0.6,
+           4.0, 6.0, 5.5, 4.0, 2.5, 0.6,
+           9.0, 7.5, 6.6, 5.4, 4.0, 2.5, 0.6)
+)
+d_dose_pd <- data.frame(
+  Subject = c("predose", "no_predose", "c0_measured"),
+  time = 0,
+  dose = 100
+)
+o_conc_pd <- PKNCAconc(d_conc_pd, conc ~ time | Subject)
+o_dose_pd <- PKNCAdose(d_dose_pd, dose ~ time | Subject)
+
+auclast_by_method <- function(method) {
+  res <- as.data.frame(pk.nca(PKNCAdata(
+    o_conc_pd, o_dose_pd,
+    intervals = data.frame(start = 0, end = Inf, auclast = TRUE),
+    impute = method
+  )))
+  res <- res[res$PPTESTCD == "auclast", ]
+  setNames(res$PPORRES, as.character(res$Subject))
+}
+
+methods <- c("start_conc0", "start_predose",
+             "start_predose,start_conc0", "start_predose_conc0")
+round(sapply(methods, auclast_by_method), 2)
 ```
 
-```{r}
-res_chain <- pk.nca(o_data_chain)
+The warning comes from `start_predose` for the `no_predose` profile, which has
+nothing at or before time 0 to shift, so its `auclast` is `NA`. Reading the
+columns:
 
-as.data.frame(res_chain) |>
-  filter(Subject == "1", PPTESTCD == "auclast") |>
-  select(Subject, PPTESTCD, PPORRES)
-```
+- `start_conc0` puts 0 at time 0 for all three, discarding the predose
+  sample and replacing the measured 9.0 at time 0.
+- `"start_predose,start_conc0"` gives exactly the `start_conc0` column: the
+  predose 2.0 that `start_predose` shifted to time 0 is overwritten with 0.
+- `start_predose_conc0` uses the shifted predose concentration for `predose`,
+  adds 0 for `no_predose`, and keeps the measured 9.0 for `c0_measured`.
 
-For subject 1 the chained result matches the global `start_conc0` run in the
-previous section — the same auclast (92.3) appears in the first row of both
-displays: `start_predose` found no pre-dose sample to carry forward, so the
-fallback inserted the zero.
+Chains remain useful when a later method fills a gap rather than overwriting,
+for example `"start_predose,start_cmin"` (use a predose sample, otherwise the
+interval minimum), or when the methods act at different ends, as in
+`"start_predose,end_conc_drop"`. `interval_add_impute()` (with its `after`
+argument) and `interval_remove_impute()` edit chains in an interval table; see
+[Editing intervals](intervals.qmd#editing-intervals).
 
 ---
 
 ## Per-interval imputation
 
-Different intervals in the same dataset can use different strategies. Add an
-`impute` column to the intervals data frame, then pass the column name (as a
-string) to the `impute` argument of `PKNCAdata()`. The same setup is shown in
+Different intervals in the same dataset can use different strategies. Add a
+character column of methods to the intervals data frame, then pass the column
+name (as a string) to the `impute` argument of `PKNCAdata()`. The column may
+have any name (≥ 0.13.0); a column named `impute` is also found when the
+`impute` argument is left at its default of `NA`. The same setup is shown in
 [the vignette's per-interval section](https://humanpred.github.io/pknca/articles/v08-data-imputation.html#imputation-by-calculation-interval).
 
 ```{r}
@@ -215,7 +323,7 @@ my_intervals <- data.frame(
   auclast = c(TRUE,  FALSE),
   aucinf.obs = c(FALSE, TRUE),
   cmax   = c(TRUE,  TRUE),
-  impute = c("start_conc0", "start_predose,start_conc0")
+  impute = c("start_conc0", "start_predose_conc0")
 )
 
 o_data_per_interval <- PKNCAdata(
@@ -226,6 +334,14 @@ o_data_per_interval <- PKNCAdata(
 
 o_data_per_interval$impute
 o_data_per_interval$intervals[, c("start", "end", "impute")]
+```
+
+`get_impute_column()` and `get_impute_method()` (≥ 0.13.0) apply the same
+rules that `pk.nca()` does to find the column and the method for each row:
+
+```{r}
+get_impute_column(o_data_per_interval$intervals, impute = o_data_per_interval$impute)
+get_impute_method(o_data_per_interval$intervals, impute = o_data_per_interval$impute)
 ```
 
 ```{r}
@@ -245,7 +361,9 @@ as.data.frame(res_per) |>
 
 The function name **must** follow the pattern `PKNCA_impute_method_<name>`.
 PKNCA prepends `PKNCA_impute_method_` to the string you supply and looks up
-that single function on the search path, so the convention is mandatory.
+that single function on the search path, so the convention is mandatory. A
+function of your own is found this way without being registered, so it works
+in imputation strings but is not listed by `pknca_impute_methods()`.
 
 ### Required signature
 
@@ -306,23 +424,31 @@ The vignette's [advanced section](https://humanpred.github.io/pknca/articles/v08
 
 | Situation | Recommended strategy |
 |-----------|----------------------|
-| Single-dose study, no pre-dose drug expected | `start_conc0` |
+| Single-dose study; use a predose sample if there is one, otherwise assume zero | `start_predose_conc0` (the automatic single-dose choice) |
+| Single-dose study, no pre-dose drug expected, any time-0 value to be ignored | `start_conc0` |
 | Multiple-dose or steady-state, trough sample collected | `start_predose` |
 | Endogenous analyte or metabolite, zero implausible | `start_cmin` |
-| Uncertain: try pre-dose, fall back to zero | `"start_predose,start_conc0"` |
+| Intravenous bolus with a measured concentration at the dose time | `start_predose_conc0` (keeps it), or no imputation and let `c0` back-extrapolate |
+| Sample at the interval end that belongs to the next dose | add `end_conc_drop` to the chain |
+| Sparse sampling | `start_conc0` only; the sparse estimators refuse other imputed values (`pknca_error_sparse_impute`); see the [Sparse Sampling chapter](sparse.qmd) |
 | Non-standard logic required | Custom `PKNCA_impute_method_*` function |
 
 ---
 
 ## Summary
 
-- Imputation is triggered when no observation exists at the interval start time.
-- The three built-in start-of-interval methods are referenced by their suffix
-  strings: `"start_conc0"`, `"start_predose"`, `"start_cmin"`.
+- `start_conc0` sets the interval start to 0 even when a concentration was
+  measured there; the other start methods act only when no concentration
+  exists at the interval start time.
+- The built-in methods are referenced by their suffix strings:
+  `"start_conc0"`, `"start_predose"`, `"start_cmin"`, `"start_predose_conc0"`,
+  and `"end_conc_drop"`; `pknca_impute_methods()` lists them.
+- Automatic intervals carry their own `impute` column (≥ 0.13.0).
 - Global imputation: `PKNCAdata(..., impute = "start_conc0")`.
-- Chained methods: `impute = "start_predose,start_conc0"`.
-- Per-interval: add an `impute` column to the intervals data frame and pass
-  that column name to the `impute` argument of `PKNCAdata()`.
+- Chained methods apply left to right, and `start_conc0` overwrites what
+  earlier methods did; use `start_predose_conc0` for "predose, else zero".
+- Per-interval: add a character column of methods (any name) to the intervals
+  and pass that column name to the `impute` argument of `PKNCAdata()`.
 - Custom functions: name them `PKNCA_impute_method_<name>` and return a
   two-column data frame (`conc`, `time`).
 
@@ -330,5 +456,5 @@ The vignette's [advanced section](https://humanpred.github.io/pknca/articles/v08
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA_impute_method_start_conc0()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [PKNCA_impute_method_start_predose()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [PKNCA_impute_method_start_cmin()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [PKNCA_impute_method_start_conc0()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [PKNCA_impute_method_start_predose()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [PKNCA_impute_method_start_cmin()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [PKNCA_impute_method_start_predose_conc0()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [PKNCA_impute_method_end_conc_drop()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [pknca_impute_methods()](https://humanpred.github.io/pknca/reference/pknca_impute_methods.html) · [get_impute_column()](https://humanpred.github.io/pknca/reference/get_impute_column.html) · [get_impute_method()](https://humanpred.github.io/pknca/reference/get_impute_method.html) · [interval_add_impute()](https://humanpred.github.io/pknca/reference/interval_add_impute.html)
 :::

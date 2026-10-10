@@ -10,7 +10,7 @@ pknca_ver <- as.character(packageVersion("PKNCA"))
 This book was built against **PKNCA `r pknca_ver`**. Examples are verified against that version. For the function reference, see the [pkgdown site](https://humanpred.github.io/pknca/reference/index.html).
 :::
 
-**PKNCA** is an R package for automated noncompartmental analysis (NCA). It calculates PK parameters (AUC, Cmax, half-life, clearance, volume, and many more) from concentration-time data, supports IV and extravascular routes, urine excretion, sparse sampling, multiple-dose designs, and CDISC-aligned output. This book documents PKNCA ≥ 0.12.2 with runnable examples throughout. For the package authors' own orientation material, see the vignettes [Introduction to PKNCA and Usage Instructions](https://humanpred.github.io/pknca/articles/v01-introduction-and-usage.html) and [PKNCA – an R package for noncompartmental analysis of pharmacokinetic data](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
+**PKNCA** is an R package for automated noncompartmental analysis (NCA). It calculates PK parameters (AUC, Cmax, half-life, clearance, volume, and many more) from concentration-time data, supports IV and extravascular routes, urine excretion, sparse sampling, multiple-dose designs, and CDISC-aligned output. This book documents PKNCA ≥ 0.13.0 with runnable examples throughout. For the package authors' own orientation material, see the vignettes [Introduction to PKNCA and Usage Instructions](https://humanpred.github.io/pknca/articles/v01-introduction-and-usage.html) and [PKNCA – an R package for noncompartmental analysis of pharmacokinetic data](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
 
 ## What is NCA?
 
@@ -61,18 +61,23 @@ The vignette [Computing NCA Parameters for Theophylline](https://humanpred.githu
 
 For bioavailability, IV data serve as the reference against which extravascular exposure is compared.
 
-## What's new in 0.12.2
+## What's new in 0.13.0
 
-- **`normalize_by_col()` / `normalize()`** — normalize results by a column in the concentration data (`normalize_by_col()`) or a custom normalization table (`normalize()`)
-- **`tmin` parameter** — time of minimum observed concentration
-- **Tobit regression** for half-life, including full `pk.nca()` pipeline support via `PKNCAconc(lloq = )`
-- **CDISC output format** — `as.data.frame(results, out_format = "cdisc")` translates parameter codes and adds PPTEST
-- **Expanded derived parameters** — the `cl.*`, `kel.*`, `mrt.*`, `vss.*`, and `vz.*` families grew substantially
-- **Sparse AUMC** and five new sparse-derived parameters (`cl.sparse.last`, `kel.sparse.last`, `mrt.ivint.last`, `vss.sparse.last`, `vz.sparse.last`)
-- **New excretion parameters**: `volpk`, `ermax`, `ertmax`, `ertlst`, dose-normalized renal clearance (`clr.*.dn`)
-- **`lambda.z.corrxy`** — correlation between x and y in the λz regression
-- **`pknca_units_table()`** is now an S3 generic with a `PKNCAdata` method
-- **`get_halflife_points()`** works directly on `PKNCAdata` objects; handles `start ≠ 0` correctly
+PKNCA 0.13.0 is a large release; the package [NEWS](https://humanpred.github.io/pknca/news/index.html) lists every change. Changes that alter default results are marked **breaking**.
+
+- **Automatic intervals rebuilt (breaking)** — when no intervals are given, `PKNCAdata()` builds them from the dosing regimen: a single dose gets one interval from the dose to infinity with `start_predose_conc0` imputation, and repeated dosing gets an interval between each pair of sampled consecutive doses, chosen segment by segment when the regimen changes. `auto.interval.method = "legacy"` restores the previous behavior. See [Automatic Intervals and Dosing Regimens](user/auto-intervals.qmd).
+- **Dosing-regimen detection** — `find.dose.regimen()` and a reworked `find.tau()`, nominal times, and time units for `tau`.
+- **Secondary parameters in one run** — bioavailability, accumulation and metabolite ratios, and renal clearance computed across intervals and groups with `interval_id`/`*_ref` columns and `interval_add_secondary()`. See [Secondary Parameters](user/secondary-parameters.qmd).
+- **Bioavailability renamed (breaking)** — `f` is now `f.obs`, alongside `f.pred`, `f.last`, and the `f.int.*` family.
+- **Bioequivalence** — the `be_*` functions assess average, scaled, and narrow-therapeutic-index bioequivalence and descriptive comparisons. See [Bioequivalence](user/bioequivalence.qmd).
+- **Sparse NCA unified (breaking names)** — sparse results use the standard parameter names (`auclast`, `aucinf.obs`, `aucivinf.obs`, …) with `_se` and `_df` companions; the AUC to infinity includes the uncertainty of λz by the delta method; IV bolus, batch designs, and `sparse_bootstrap()` are supported. See [Sparse PK Sampling](user/sparse.qmd).
+- **Dose-aware partial AUCs (breaking)** — every `aucint`/`aumcint` parameter is dose-aware; the `.dose` variants are retired.
+- **Data quality checks** — `pknca_missing_samples()` and the `exclude_nca_tmax_coverage()` exclusion rule. See [Data Quality Checks](user/data-quality.qmd).
+- **Date-time data and CDISC output** — POSIXct/Date times, SDTM time references (PPSTINT, PPENINT, PPTPTREF, PPRFTDTC), PPGRPID, and `as.data.frame(results, out_format = "cdisc")`. See [Date-Time Data and Time References](user/datetime.qmd) and [Regulatory & CDISC](user/regulatory.qmd).
+- **Half-life** — Tobit regression through the full `pk.nca()` pipeline (`PKNCAconc(lloq = )`), point-selection controls, `lambda.z.corrxy`, and `get_halflife_fit()`/`get_halflife_curve()` for plotting the fit.
+- **Interval tools** — `pknca_interval_table()`, `pknca_presets()`, `pknca_parameter_table()`, and the `interval_add_param()` family.
+- **Expanded parameters** — the `cl.*`, `kel.*`, `mrt.*`, `vss.*`, and `vz.*` families, `aumciv*`, `aumcint*`, `tmin`, and excretion parameters (`volpk`, `ermax`, `ertmax`, `ertlst`, `clr.*.dn`).
+- **Post-processing and units** — `normalize()`/`normalize_by_col()`, and `pknca_units_table()` built automatically by `PKNCAdata()`.
 
 ---
 
