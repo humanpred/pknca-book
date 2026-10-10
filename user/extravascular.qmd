@@ -85,13 +85,15 @@ as.data.frame(o_nca) |>
 | `cmax` | Maximum observed concentration |
 | `tmax` | Time of Cmax |
 | `cmin` | Minimum observed concentration in the interval |
-| `tmin` | Time of the minimum observed concentration (≥ 0.12.2) |
+| `tmin` | Time of the minimum observed concentration (≥ 0.13.0) |
 | `tfirst` | First time with a non-zero (non-BLQ) concentration |
 | `tlast` | Last time with a measurable concentration |
 | `clast.obs` | Observed concentration at `tlast` |
 | `clast.pred` | Predicted concentration at `tlast` (from λz fit) |
-| `count_conc` | Total observations (including BLQ) |
-| `count_conc_measured` | Observations above LOQ (non-BLQ) |
+| `count_conc` | Number of non-missing concentrations (including BLQ) |
+| `count_conc_measured` | Number of concentrations above LOQ (non-BLQ) |
+
+Both counts are taken after imputation and do not distinguish imputed from measured values: an imputed zero (`start_conc0`) adds to `count_conc` but not to `count_conc_measured`, while a concentration carried to the start (`start_predose`) adds to both. To count only measured samples, calculate the counts in an interval without imputation.
 | `lambda.z.time.last` | Last timepoint used in the λz regression |
 
 ```{r}
@@ -137,7 +139,7 @@ identical(
 )
 ```
 
-The option has no effect here because no Theoph subject reaches its maximum concentration at two timepoints — `first.tmax` only matters when the maximum is an exact tie. Tie-breaking for Tmin is controlled by the `first.tmin` option (≥ 0.12.2; default `TRUE` = return first occurrence). All calculation options are cataloged in [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
+The option has no effect here because no Theoph subject reaches its maximum concentration at two timepoints — `first.tmax` only matters when the maximum is an exact tie. Tie-breaking for Tmin is controlled by the `first.tmin` option (≥ 0.13.0; default `TRUE` = return first occurrence). All calculation options are cataloged in [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
 
 ### AUC variants
 
@@ -228,6 +230,8 @@ For extravascular dosing the fraction absorbed (F) is unknown, so clearance and 
 | `cl.obs` | Apparent clearance = Dose / AUCinf.obs (this is CL/F) |
 | `vz.obs` | Apparent volume = CL.obs / λz (this is Vz/F) |
 
+Each clearance and volume is available for every AUC basis, named by its suffix: `.obs` and `.pred` (AUCinf with observed or predicted Clast), `.last` (AUClast), `.all` (AUCall), and `.int.last`, `.int.all`, `.int.inf.obs`, `.int.inf.pred` (the interval AUCs, `aucint.*`). PKNCA 0.13.0 completed these families for `cl.*`, `vz.*`, `vss.*`, `mrt.*`, and `kel.*` (for example `cl.all`, `vz.last`, `vss.int.last`, `mrt.int.inf.obs`); the full list is printed at the end of this chapter.
+
 ### Lag time (tlag)
 
 `tlag` is the time before absorption begins — the delay between dosing and the first measurable rise in concentration. Common for enteric-coated formulations or SC injections with a diffusion delay.
@@ -245,9 +249,9 @@ as.data.frame(o_nca_tlag) |>
 
 > For the Theoph dataset, tlag is 0 for all subjects (no lag). It becomes non-zero when the concentration-time profile shows a flat period after dosing before rising.
 
-### Bioavailability (f)
+### Bioavailability (f.obs and related)
 
-`f` (relative bioavailability via `pk.calc.f()`) requires paired test/reference treatments in the grouping structure — see the [Bioavailability](#bioavailability) section below.
+Bioavailability (`pk.calc.f()`) compares this administration with a reference administration, so it needs two profiles — see the [Bioavailability](#bioavailability) section below. The parameter formerly named `f` is `f.obs` since PKNCA 0.13.0 (requesting `f` is an error), alongside `f.pred`, `f.last`, and the interval-based `f.int.*`.
 
 ### Volume at steady state (Vss)
 
@@ -351,13 +355,15 @@ as.data.frame(o_nca_tau) |> select(subject, PPTESTCD, PPORRES)
 
 In some studies, the predose sample is missing or was not collected. PKNCA can impute a time-0 concentration before calculations. Full method descriptions and per-interval examples are in the [Concentration Imputation chapter](imputation.qmd) and the [Data Imputation vignette](https://humanpred.github.io/pknca/articles/v08-data-imputation.html).
 
-Available built-in methods (comma-separate to chain them):
+Available built-in methods (comma-separate to chain them; `pknca_impute_methods()` lists them):
 
 | Method | What it does |
 |---|---|
-| `start_predose` | Uses the last pre-interval concentration at the interval start (no sample is added if no pre-interval observation exists) |
-| `start_conc0` | Sets the predose concentration to 0 unconditionally |
-| `start_cmin` | Uses the minimum observed concentration as predose value |
+| `start_predose` | Shifts the most recent measured pre-interval concentration to the interval start, if no concentration exists at the start (nothing is added if there is no pre-interval observation) |
+| `start_conc0` | Sets the start concentration to 0, replacing any existing value at the start time |
+| `start_predose_conc0` | Uses a predose concentration when one is available and 0 otherwise, keeping a concentration measured at the start time (≥ 0.13.0) |
+| `start_cmin` | Adds the minimum concentration in the interval at the start time |
+| `end_conc_drop` | Drops a concentration measured exactly at the interval end (≥ 0.13.0) |
 
 ```{r}
 # Remove the time=0 observation from subject 1 to simulate missing predose
@@ -398,7 +404,7 @@ d_intervals_impute <- data.frame(
 o_data_per_interval <- PKNCAdata(
   o_conc_miss, o_dose,
   intervals = d_intervals_impute,
-  impute = "impute"   # tells PKNCA to look in the intervals column named "impute"
+  impute = "impute"   # the name of the intervals column holding the method
 )
 o_nca_per_interval <- pk.nca(o_data_per_interval)
 
@@ -411,46 +417,22 @@ bind_rows(
   select(version, PPTESTCD, PPORRES)
 ```
 
-With a single interval row the per-interval column reproduces the global setting; with several rows, each row's `impute` value applies only to its own calculation window.
+With a single interval row the per-interval column reproduces the global setting; with several rows, each row's `impute` value applies only to its own calculation window. The column can have any name (≥ 0.13.0); `PKNCAdata(impute = )` names it: a value that is a column name of the intervals is read as that column, and any other value is the method for every interval.
 
 ---
 
 ## Bioavailability
 
-Bioavailability (F) compares dose-normalized exposure from the EV route against an IV reference. In PKNCA, F is computed via the `f` interval parameter — backed by `pk.calc.f()` — which requires the test and reference treatments to be distinguished in the grouping structure (e.g. a treatment or period column), with the reference AUC available for the ratio. Theoph (oral theophylline) and Indometh (IV indomethacin) are different drugs from different studies, so no real F can be computed here; the code below only illustrates the AUC inputs and the arithmetic:
+Bioavailability (F) compares the dose-normalized exposure of the extravascular dose with an IV reference (absolute F) or another formulation (relative F). Since PKNCA 0.13.0 it is a *secondary parameter* calculated in the same `pk.nca()` run as the AUCs: the intervals carry a treatment (or route, or formulation) grouping column, the test intervals request `f.obs`, and the reference profile is named with `PKNCAdata(group_ref = )`, an `f.obs_ref` pointer, or `interval_add_secondary()`. `f.obs` takes the reference dose and AUCinf,obs from the reference interval and the test dose (`totdose`) and AUCinf,obs from its own interval; `dose2`/`auc2` interval columns, used by older workarounds, are ignored. Variants name the AUC they are built on:
 
-```{r}
-# IV reference (using Indometh as stand-in — illustrative syntax only)
-d_iv_conc <- as.data.frame(Indometh)
-d_iv_dose <- data.frame(Subject = unique(d_iv_conc$Subject), dose = 25, time = 0)
+| Parameter | AUC basis |
+|---|---|
+| `f.obs` | `aucinf.obs` (formerly `f`) |
+| `f.pred` | `aucinf.pred` |
+| `f.last` | `auclast` |
+| `f.int.last`, `f.int.all`, `f.int.obs`, `f.int.pred` | `aucint.last`, `aucint.all`, `aucint.inf.obs`, `aucint.inf.pred` |
 
-o_iv_conc <- PKNCAconc(d_iv_conc, conc ~ time | Subject)
-o_iv_dose <- PKNCAdose(d_iv_dose, dose ~ time | Subject, route = "intravascular")
-o_iv_data <- PKNCAdata(
-  o_iv_conc, o_iv_dose,
-  intervals = data.frame(start = 0, end = Inf, aucinf.obs = TRUE),
-  impute = "start_conc0"  # Indometh has no t = 0 sample
-)
-o_iv_nca <- pk.nca(o_iv_data)
-
-iv_aucinf <- as.data.frame(o_iv_nca) |>
-  filter(PPTESTCD == "aucinf.obs") |>
-  summarise(mean_aucinf = mean(PPORRES)) |>
-  pull(mean_aucinf)
-
-ev_aucinf <- as.data.frame(o_nca_auc) |>
-  filter(PPTESTCD == "aucinf.obs") |>
-  summarise(mean_aucinf = mean(PPORRES)) |>
-  pull(mean_aucinf)
-
-# F = (AUC_ev / Dose_ev) / (AUC_iv / Dose_iv); here only the AUC ratio is shown
-cat(sprintf("Mean IV AUCinf (Indometh): %.2f\n", iv_aucinf))
-cat(sprintf("Mean EV AUCinf (Theoph):   %.2f\n", ev_aucinf))
-cat(sprintf("AUC ratio EV/IV: %.1f — illustrative only, different drugs\n",
-            ev_aucinf / iv_aucinf))
-```
-
-> In a real bioavailability study, subjects receive both the IV reference and the EV test treatment, and `pk.calc.f()` computes F as the dose-normalized AUC ratio of test to reference. `f` is typically used in crossover bioequivalence studies — see `?pk.calc.f` for the full setup.
+Theoph has no reference administration, so the worked example — an IV and oral crossover with `f.obs` and `f.last` checked by hand — is in the [Secondary Parameters chapter](secondary-parameters.qmd#bioavailability). The same chapter covers food-effect ratios (`ratio.cmax`, `ratio.aucinf.obs`) for comparing fed and fasted extravascular doses.
 
 ---
 
@@ -564,7 +546,7 @@ o_data_blq <- PKNCAdata(
 
 On Theoph the per-phase rule reproduces the default results (the predose zeros sit before Tmax and are kept), while the global `"drop"` is a trap for intervals starting at the dose time: it removes the predose zeros too, so AUCs that start at 0 begin before the first remaining measurement and return `NA` with a warning.
 
-To use BLQ observations in half-life estimation rather than dropping them, see [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html) (≥ 0.12.2).
+To use BLQ observations in half-life estimation rather than dropping them, see [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html) (≥ 0.13.0).
 
 ---
 
@@ -640,34 +622,54 @@ ev_relevant <- c(
   # AUC family
   "auclast", "aucall", "aucinf.obs", "aucinf.pred",
   "aucpext.obs", "aucpext.pred",
-  "aucint.last", "aucint.last.dose", "aucint.all", "aucint.all.dose",
-  "aucint.inf.obs", "aucint.inf.obs.dose",
+  "aucint.last", "aucint.all", "aucint.inf.obs", "aucint.inf.pred",
   # AUMC
   "aumclast", "aumcall", "aumcinf.obs", "aumcinf.pred",
+  "aumcint.last", "aumcint.all", "aumcint.inf.obs", "aumcint.inf.pred",
   # Half-life / λz
   "half.life", "lambda.z", "lambda.z.n.points", "lambda.z.time.first", "lambda.z.time.last",
   "r.squared", "adj.r.squared", "span.ratio",
   # Clearance (apparent)
   "cl.obs", "cl.pred", "cl.last", "cl.all",
+  "cl.int.last", "cl.int.all", "cl.int.inf.obs", "cl.int.inf.pred",
   # Volume (apparent)
-  "vz.obs", "vz.pred", "vss.obs", "vss.pred", "vss.last",
+  "vz.obs", "vz.pred", "vz.last", "vz.all",
+  "vz.int.last", "vz.int.all", "vz.int.inf.obs", "vz.int.inf.pred",
+  "vss.obs", "vss.pred", "vss.last", "vss.all",
+  "vss.int.last", "vss.int.all", "vss.int.inf.obs", "vss.int.inf.pred",
   # MRT
-  "mrt.last", "mrt.obs", "mrt.pred",
+  "mrt.last", "mrt.obs", "mrt.pred", "mrt.all",
+  "mrt.int.last", "mrt.int.all", "mrt.int.inf.obs", "mrt.int.inf.pred",
   # Effective half-life / kel
   "thalf.eff.last", "thalf.eff.obs", "thalf.eff.pred",
-  "kel.obs", "kel.pred", "kel.last",
-  # Bioavailability
-  "f",
+  "kel.obs", "kel.pred", "kel.last", "kel.all",
+  "kel.int.last", "kel.int.all", "kel.int.inf.obs", "kel.int.inf.pred",
+  # Bioavailability (secondary parameters; need a reference interval)
+  "f.obs", "f.pred", "f.last", "f.int.last", "f.int.all", "f.int.obs", "f.int.pred",
   # Dose-normalized
   "auclast.dn", "aucinf.obs.dn", "cmax.dn", "clast.obs.dn"
 )
 
 sort(names(interval_cols)[names(interval_cols) %in% ev_relevant])
+
+# Every name above is registered
+setdiff(ev_relevant, names(interval_cols))
 ```
+
+This list is curated. `pknca_parameter_table()` (≥ 0.13.0) classifies every registered parameter, including the routes it applies to, so the complete catalog for extravascular dosing is one filter away:
+
+```{r}
+d_param_table <- pknca_parameter_table()
+d_ev_params <- d_param_table[grepl("extravascular", d_param_table$route), ]
+nrow(d_ev_params)
+head(d_ev_params[, c("parameter", "concept", "tier", "sparse", "secondary")])
+```
+
+The `sparse` column flags outputs that apply to sparse sampling (such as the standard error `auclast_se`), and `secondary` flags parameters that need a reference interval, such as `f.obs`.
 
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.f()](https://humanpred.github.io/pknca/reference/pk.calc.f.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA_impute_method_start_*()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.f()](https://humanpred.github.io/pknca/reference/pk.calc.f.html) · [pknca_parameter_table()](https://humanpred.github.io/pknca/reference/pknca_parameter_table.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA_impute_method_start_*()](https://humanpred.github.io/pknca/reference/PKNCA_impute_method.html) · [pknca_impute_methods()](https://humanpred.github.io/pknca/reference/pknca_impute_methods.html)
 :::

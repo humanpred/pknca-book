@@ -21,11 +21,13 @@ Urine NCA characterizes how much drug is excreted in urine over time. Key parame
 | `clr.pred` | ae / AUCinf.pred | Renal clearance — using predicted Clast |
 | `clr.last` | ae / AUClast | Renal clearance — no extrapolation |
 
+Renal clearance needs values from two profiles (the urine amount and the plasma AUC), which makes `clr.*` a *secondary parameter*. Since PKNCA 0.13.0 it is calculated in the same `pk.nca()` call as the rest of the analysis (shown below); the [Secondary Parameters chapter](secondary-parameters.qmd) explains the linkage in general.
+
 ---
 
 ## Data structure for urine
 
-Urine NCA requires a **separate concentration object** for urine, with the `volume` argument to `PKNCAconc()` specifying the column name that holds the urine volume collected in each interval.
+Urine NCA needs the urine volume collected in each interval, named by the `volume` argument to `PKNCAconc()`. The urine data can be a concentration object of their own, or share one with the plasma data, distinguished by a grouping column; sharing one is what lets renal clearance be calculated in the same run (see below).
 
 The key distinction from plasma NCA: urine concentrations represent **interval averages** rather than timepoint measurements. This dataset records each collection's **end** time as `time` — sufficient for amount parameters like `ae`, which only need each row to fall inside the analysis interval. PKNCA's full urine convention is `time` as the collection **start** plus a `duration` column giving the collection length; the excretion-rate section below rebuilds the data that way.
 
@@ -90,51 +92,63 @@ o_conc_urine  <- PKNCAconc(
 o_dose <- PKNCAdose(d_dose, dose ~ time | Subject, route = "intravascular")
 ```
 
+Requesting a parameter that needs a sample volume (`ae`, `fe`, `volpk`, `clr.*`) from a `PKNCAconc()` object without `volume` is an error naming those parameters (`pknca_error_missing_conc_input`, ≥ 0.13.0); likewise the excretion-rate parameters `ermax`, `ertmax`, `ertlst`, and `erlst` need `duration`. Earlier versions added empty `volume` and `duration` columns to every concentration object and reported such parameters as not calculated.
+
 ---
 
-## Separate plasma + urine workflow
+## Renal clearance in one `pk.nca()` call (≥ 0.13.0)
 
-Renal clearance combines the urine amount excreted (Ae) with the plasma AUC. Combined plasma+urine analysis in a single `PKNCAdata` object is limited; the recommended workflow is to run plasma NCA and urine NCA separately and join the results.
-
-This separate-workflow approach works reliably:
+Put the plasma and urine concentrations in one data frame, distinguished by a grouping column (here `specimen`), and give the urine volume through `volume`. Plasma rows have no volume. The volume is converted to litres so that `conc × volume` (mcg/mL × L = mg) is in the same mass unit as the dose and the plasma AUC (mg·h/L), which makes `fe` a fraction and `clr.*` come out in L/h:
 
 ```{r}
-# --- Plasma NCA ---
-o_plasma_data <- PKNCAdata(
-  o_conc_plasma, o_dose,
-  intervals = data.frame(start = 0, end = Inf,
-                         auclast = TRUE, aucinf.obs = TRUE),
-  impute = "start_conc0"
+d_conc_all <- bind_rows(
+  d_plasma |>
+    transmute(Subject, specimen = "plasma", time, conc, volume_L = NA_real_),
+  urine_collections |>
+    transmute(Subject, specimen = "urine", time, conc, volume_L = volume / 1000)
 )
-o_nca_plasma <- pk.nca(o_plasma_data)
 
-plasma_auc <- as.data.frame(o_nca_plasma) |>
-  filter(PPTESTCD %in% c("auclast", "aucinf.obs")) |>
+o_conc_all <- PKNCAconc(d_conc_all, conc ~ time | specimen + Subject,
+                        volume = "volume_L")
+```
+
+The interval specification has one row per specimen. The plasma profile has no sample at the dose time, so the plasma row imputes a zero there (`impute` column, used through `PKNCAdata(impute = "impute")`); the urine row imputes nothing, because adding a concentration at the start of a urine collection is not meaningful. `interval_add_secondary()` then requests `clr.last` and `clr.obs` on the urine row and points them at the plasma row:
+
+```{r}
+d_intervals_renal <-
+  data.frame(
+    specimen   = c("plasma", "urine"),
+    start      = 0,
+    end        = 24,
+    impute     = c("start_conc0", NA),
+    auclast    = c(TRUE, FALSE),
+    aucinf.obs = c(TRUE, FALSE),
+    ae         = c(FALSE, TRUE),
+    fe         = c(FALSE, TRUE)
+  ) |>
+  interval_add_secondary(param = "clr.last",
+                         reference = data.frame(specimen = "plasma")) |>
+  interval_add_secondary(param = "clr.obs",
+                         reference = data.frame(specimen = "plasma"))
+
+o_data_renal <- PKNCAdata(o_conc_all, o_dose,
+                          intervals = d_intervals_renal, impute = "impute")
+o_nca_renal  <- pk.nca(o_data_renal)
+
+results <- as.data.frame(o_nca_renal) |>
+  filter(PPTESTCD %in% c("auclast", "aucinf.obs", "ae", "fe", "clr.obs", "clr.last")) |>
   select(Subject, PPTESTCD, PPORRES) |>
-  tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES)
-
-# --- Urine: compute ae manually ---
-# ae = concentration (mcg/mL) × volume (mL) / 1000  →  mg
-ae_by_subject <- urine_collections |>
-  mutate(ae_interval = conc * volume / 1000) |>  # mcg/mL * mL / 1000 = mg
-  group_by(Subject) |>
-  summarise(ae_total = sum(ae_interval), .groups = "drop")
-
-# --- Join and compute clr, fe ---
-dose_amt <- 100  # mg
-
-results <- plasma_auc |>
-  left_join(ae_by_subject, by = "Subject") |>
-  mutate(
-    fe       = ae_total / dose_amt,
-    clr_obs  = ae_total / aucinf.obs,
-    clr_last = ae_total / auclast
-  )
+  tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES) |>
+  arrange(Subject)
 
 results
 ```
 
-`clr.pred` works identically using AUCinf.pred as the denominator.
+The plasma AUCs and the urine amounts come from their own rows, and `clr.obs` and `clr.last` are reported on the urine row that requested them (`as.data.frame(o_nca_renal)` shows each result's `specimen`, and a `specimen_ref` column naming the plasma profile it used). Request `clr.pred` the same way to divide by AUCinf,pred. `fe` and `clr.*` are calculated even when `ae` is not requested.
+
+When the plasma profile needs no per-interval setting, even the plasma row and the linkage can be left out: requesting `clr.obs` on a urine interval alone makes `pk.nca()` find the plasma profile and create the interval it needs, reported with a message. That derivation, `group_ref` for choosing among several candidate profiles, and how units are composed for a renal clearance whose amount and AUC have different units are covered in the [Secondary Parameters chapter](secondary-parameters.qmd).
+
+A renal clearance with no AUC to divide by (no reference interval and none derivable) is `NA` with the reason in the `exclude` column. Before 0.13.0 it silently divided by zero and reported `Inf`.
 
 For a real IV analysis, back-extrapolate C0 instead — see the [Intravascular](intravascular.qmd) chapter; `conc = 0` at `t = 0` is used here only to keep the simulation short.
 
@@ -145,7 +159,7 @@ For a real IV analysis, back-extrapolate C0 instead — see the [Intravascular](
 ```{r}
 results |>
   mutate(across(where(is.numeric), \(x) round(x, 3))) |>
-  select(Subject, ae_total, fe, clr_obs, clr_last) |>
+  select(Subject, ae, fe, clr.obs, clr.last) |>
   knitr::kable(
     col.names = c("Subject", "Ae (mg)", "fe", "CLr.obs (L/h)", "CLr.last (L/h)"),
     caption = "Urine NCA results — simulated IV bolus (dose = 100 mg)"
@@ -162,7 +176,7 @@ results |>
 
 ## Using the PKNCA `ae` parameter natively
 
-If your data are structured with urine as a separate concentration object and `PKNCAconc(..., volume = "vol_col")`, PKNCA can compute `ae` directly:
+`ae` can also be calculated from a urine-only concentration object, such as `o_conc_urine` created above with the volume in mL:
 
 ```{r}
 # o_conc_urine (created above) already carries the volume column
@@ -181,11 +195,11 @@ as.data.frame(o_nca_ae) |>
   arrange(Subject)
 ```
 
-Note the units: `ae` here is in mcg (urine concentration in mcg/mL × volume in mL), so ~90,000 mcg matches the ~90 mg computed manually above.
+Note the units: `ae` here is in mcg (urine concentration in mcg/mL × volume in mL), so ~90,000 mcg matches the ~90 mg of the combined analysis above, where the volume was in litres. Units can be declared with the unit arguments of `PKNCAconc()`; there is no separate volume unit, so `amountu` is the unit of `conc × volume`.
 
 ---
 
-## New urine parameters (≥ 0.12.2)
+## New urine parameters (≥ 0.13.0)
 
 ### volpk — total collection volume
 
@@ -212,8 +226,10 @@ as.data.frame(o_nca_vol) |>
 | `ermax` | Maximum excretion rate (amount/time) within the interval |
 | `ertmax` | Midpoint collection time of the maximum excretion rate period |
 | `ertlst` | Midpoint collection time of the last measurable excretion rate |
+| `erlst` | Last measurable (positive) excretion rate, from the collection at `ertlst` |
+| `erint` | Excretion rate over the whole interval: `ae / (end - start)` |
 
-These mirror the plasma-side `cmax` / `tmax` / `tlast` but apply to the excretion rate (amount excreted per collection period divided by collection duration).
+`ermax`, `ertmax`, `ertlst`, and `erlst` mirror the plasma-side `cmax` / `tmax` / `tlast` / `clast.obs` but apply to the excretion rate of each collection (amount excreted in the collection divided by its duration). `erint` and `erlst` (≥ 0.13.0) report the CDISC parameters `ERINT` and `ERLST`. `erint` divides by the interval length rather than by the summed collection durations, so a gap between collections lowers it, and an interval ending at `Inf` gives `NA`.
 
 ```{r}
 # Excretion rate needs each collection's duration, and PKNCA takes urine `time` as
@@ -234,18 +250,23 @@ er_interval <- data.frame(
   ae     = TRUE,
   ermax  = TRUE,    # maximum excretion rate
   ertmax = TRUE,    # midpoint time of the maximum-rate collection
-  ertlst = TRUE     # midpoint time of the last measurable-rate collection
+  ertlst = TRUE,    # midpoint time of the last measurable-rate collection
+  erlst  = TRUE,    # excretion rate of that last measurable collection
+  erint  = TRUE     # ae / (end - start)
 )
 
 o_nca_er <- pk.nca(PKNCAdata(o_conc_er, o_dose, intervals = er_interval))
 as.data.frame(o_nca_er) |>
-  filter(PPTESTCD %in% c("ae", "ermax", "ertmax", "ertlst")) |>
-  select(Subject, PPTESTCD, PPORRES)
+  filter(PPTESTCD %in% c("ae", "ermax", "ertmax", "ertlst", "erlst", "erint")) |>
+  select(Subject, PPTESTCD, PPORRES) |>
+  tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES)
 ```
+
+For every subject `erint` is `ae / 24`; `ertlst` is 18 h, the midpoint of the 12–24 h collection, and `erlst` is that collection's amount divided by its 12 h duration.
 
 ### Dose-normalized renal clearance
 
-Dose-normalized renal clearance variants are now available in the parameter registry:
+The dose-normalized renal clearances are in the parameter registry:
 
 | Parameter | Definition |
 |---|---|
@@ -253,33 +274,23 @@ Dose-normalized renal clearance variants are now available in the parameter regi
 | `clr.obs.dn` | `clr.obs / dose` |
 | `clr.pred.dn` | `clr.pred / dose` |
 
-Renal clearance divides the urine Ae by the plasma AUC — two different concentration objects — so a single `pk.nca()` call cannot compute `clr.*` directly. Compute each piece with `pk.nca()` and combine them, with `pk.calc.dn()` applying the dose normalization:
+::: {.callout-warning}
+In the PKNCA development version this book documents, requesting `clr.last.dn`, `clr.obs.dn`, or `clr.pred.dn` in an interval specification stops `pk.nca()` with the error "The secondary parameter 'clr.last.dn' has arguments not covered by formalsmap (dose)". Calculate `clr.*` in the run and divide by the dose with `pk.calc.dn()`, as below.
+:::
 
 ```{r}
-o_nca_ae_dn <- pk.nca(PKNCAdata(o_conc_urine, o_dose,
-                                intervals = data.frame(start = 0, end = 24, ae = TRUE)))
-
-clr_dn <- plasma_auc |>   # plasma pk.nca() results from the separate workflow above
-  left_join(
-    as.data.frame(o_nca_ae_dn) |>
-      filter(PPTESTCD == "ae") |>
-      select(Subject, ae = PPORRES),
-    by = "Subject"
-  ) |>
+clr_dn <- results |>   # one-run renal clearance results from above
   mutate(
-    ae          = ae / 1000,                  # native ae is in mcg (mcg/mL * mL); convert to mg to match the plasma AUC
-    clr.last    = ae / auclast,
-    clr.obs     = ae / aucinf.obs,
     clr.last.dn = pk.calc.dn(clr.last, 100),  # dose = 100 mg
     clr.obs.dn  = pk.calc.dn(clr.obs, 100)
-  )
+  ) |>
+  select(Subject, clr.last, clr.obs, clr.last.dn, clr.obs.dn)
 
 clr_dn
 ```
 
-
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pk.calc.dn()](https://humanpred.github.io/pknca/reference/pk.calc.dn.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [interval_add_secondary()](https://humanpred.github.io/pknca/reference/interval_add_secondary.html) · [pk.calc.ae()](https://humanpred.github.io/pknca/reference/pk.calc.ae.html) · [pk.calc.fe()](https://humanpred.github.io/pknca/reference/pk.calc.fe.html) · [pk.calc.clr()](https://humanpred.github.io/pknca/reference/pk.calc.clr.html) · [pk.calc.volpk()](https://humanpred.github.io/pknca/reference/pk.calc.volpk.html) · [pk.calc.ermax()](https://humanpred.github.io/pknca/reference/pk.calc.ermax.html) · [pk.calc.ertmax()](https://humanpred.github.io/pknca/reference/pk.calc.ertmax.html) · [pk.calc.ertlst()](https://humanpred.github.io/pknca/reference/pk.calc.ertlst.html) · [pk.calc.erlst()](https://humanpred.github.io/pknca/reference/pk.calc.erlst.html) · [pk.calc.erint()](https://humanpred.github.io/pknca/reference/pk.calc.erint.html) · [pk.calc.dn()](https://humanpred.github.io/pknca/reference/pk.calc.dn.html)
 :::
