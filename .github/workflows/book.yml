@@ -41,6 +41,10 @@ jobs:
             any::conflicted
             any::visNetwork
             any::tidyr
+            any::units
+            any::lme4
+            any::lmerTest
+            any::emmeans
             github::humanpred/pknca
 
       - name: Set up Quarto
