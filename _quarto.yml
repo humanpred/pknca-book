@@ -9,7 +9,7 @@ book:
   title: "PKNCA: Noncompartmental Analysis in R"
   author: "Teun M. Post"
   date: today
-  description: "A comprehensive guide to the PKNCA R package (≥ 0.12.2) — covering every function, parameter, and workflow with runnable examples."
+  description: "A comprehensive guide to the PKNCA R package (≥ 0.13.0) — covering every function, parameter, and workflow with runnable examples."
   repo-url: https://github.com/humanpred/pknca-book
   repo-actions: [issue, edit]
   favicon: ""
@@ -27,6 +27,7 @@ book:
       chapters:
         - user/workflow.qmd
         - user/intervals.qmd
+        - user/auto-intervals.qmd
         - user/auc-methods.qmd
         - user/halflife.qmd
         - user/extravascular.qmd
@@ -35,9 +36,14 @@ book:
         - user/superposition.qmd
         - user/tss.qmd
         - user/urine-excretion.qmd
+        - user/secondary-parameters.qmd
         - user/sparse.qmd
+        - user/sparse-uncertainty.qmd
+        - user/bioequivalence.qmd
+        - user/data-quality.qmd
         - user/postprocessing.qmd
         - user/units.qmd
+        - user/datetime.qmd
         - user/imputation.qmd
         - user/dose-aware-interpolation.qmd
         - user/custom-parameters.qmd

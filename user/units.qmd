@@ -87,7 +87,7 @@ o_conc_col <- PKNCAconc(Theoph_units, conc ~ Time | Subject,
 This function builds a complete mapping from every NCA parameter to its
 reporting unit, derived from the four base units you supply.
 
-In PKNCA ≥ 0.12.2, `pknca_units_table()` is an **S3 generic**. The most useful new method is `pknca_units_table.PKNCAdata()`, which extracts units directly from a fully assembled `PKNCAdata` object — useful when units are already embedded in `PKNCAconc` and `PKNCAdose`:
+In PKNCA ≥ 0.13.0, `pknca_units_table()` is an **S3 generic**. The most useful new method is `pknca_units_table.PKNCAdata()`, which extracts units directly from a fully assembled `PKNCAdata` object — useful when units are already embedded in `PKNCAconc` and `PKNCAdose`:
 
 ```{r}
 # Units already embedded in the data objects
@@ -104,9 +104,44 @@ o_dose_u <- PKNCAdose(
 )
 o_data_u <- PKNCAdata(o_conc_u, o_dose_u)
 
-# Extract units from the PKNCAdata object (≥ 0.12.2)
+# Extract units from the PKNCAdata object (≥ 0.13.0)
 u_from_data <- pknca_units_table(o_data_u)
 head(u_from_data, 6)
+```
+
+### Built automatically by `PKNCAdata()` (≥ 0.13.0)
+
+You rarely need to call the `PKNCAdata` method yourself: when `PKNCAdata()` is called without a `units` argument, it builds the same table from the unit arguments of the `PKNCAconc` and `PKNCAdose` objects and stores it in the object. Every result of `pk.nca()` then has a `PPORRESU` column:
+
+```{r}
+identical(o_data_u$units, u_from_data)
+
+as.data.frame(pk.nca(o_data_u)) |>
+  filter(subject == "1", PPTESTCD %in% c("auclast", "cmax", "tmax")) |>
+  select(PPTESTCD, PPORRES, PPORRESU)
+```
+
+When the unit arguments name columns of the data, the table is stratified by the groups, so that each analyte or specimen can have its own units. A unit column must have one value within each concentration group; a value that changes within a group (including `NA` for some rows) is the `pknca_error_units_nonuniform_groups` error naming the groups:
+
+```{r}
+Theoph_mixed <- Theoph_df |> mutate(conc_unit = ifelse(Time > 10, "ng/mL", "mg/L"))
+tryCatch(
+  PKNCAdata(PKNCAconc(Theoph_mixed, conc ~ Time | Subject, concu = "conc_unit", timeu = "h"),
+            o_dose),
+  # Show the first lines of the message, which lists every group
+  error = function(e) cat(head(strsplit(conditionMessage(e), "\n")[[1]], 3), sep = "\n")
+)
+```
+
+Because the table is built from whatever units were given, give all of the base units that the requested parameters need. With only `timeu` given, the table has units for times but not for concentrations, and `pk.nca()` stops for the concentration-based parameters (see [Allowing partial units](#partial-units) below):
+
+```{r}
+o_data_timeu_only <- PKNCAdata(
+  PKNCAconc(Theoph_df, conc ~ Time | Subject, timeu = "h"),
+  PKNCAdose(d_dose, amt ~ Time | Subject),
+  intervals = data.frame(start = 0, end = Inf, cmax = TRUE, tmax = TRUE)
+)
+tryCatch(pk.nca(o_data_timeu_only), error = function(e) cat(conditionMessage(e), "\n"))
 ```
 
 ### Arguments (default method)
@@ -115,9 +150,10 @@ head(u_from_data, 6)
 args(getS3method("pknca_units_table", "default"))
 ```
 
-All four of `concu`, `doseu`, `amountu`, `timeu` are required. PKNCA derives
-composite units automatically (e.g. `auclast` gets `h*mg/L` from `timeu="h"`
-and `concu="mg/L"`).
+PKNCA derives composite units automatically (e.g. `auclast` gets `h*mg/L`
+from `timeu="h"` and `concu="mg/L"`). Each base unit is optional: a parameter
+whose unit needs a base unit that was not given (for example, `ae` without
+`amountu`) gets an `NA` unit in the table.
 
 ### Output columns
 
@@ -263,7 +299,7 @@ as.data.frame(res_custom) |>
 
 ---
 
-## Allowing partial units (≥ 0.12.0)
+## Allowing partial units (≥ 0.12.0) {#partial-units}
 
 `pknca_units_table()` always returns a complete table, but a hand-edited or
 reused units table can end up missing entries for some of the parameters an
@@ -279,7 +315,7 @@ o_data_partial <- PKNCAdata(o_conc2, o_dose2, units = u_partial)
 # The missing entries are an error when the calculation runs
 tryCatch(
   pk.nca(o_data_partial),
-  error = function(e) cat("Error:", conditionMessage(e), "\n")
+  error = function(e) conditionMessage(e)
 )
 ```
 
@@ -309,22 +345,48 @@ theirs.
 
 ---
 
+## The time unit and the dosing interval (≥ 0.13.0)
+
+The time unit of the concentration data (`timeu` in `PKNCAconc()`) is not only a label. `PKNCAdata()` uses it when it detects the dosing interval (tau) for automatically generated intervals, and `pk.nca()` uses it for the tau of multiple-dose parameters: dose times are compared with nominal dosing intervals (every 4 hours to every 12 weeks) in that unit. **Times without a unit are taken to be hours.** Data recorded in minutes or days without saying so are therefore compared with intervals in hours. For once-daily doses recorded in minutes, the 1440-minute spacing is read as 1440 hours and snapped to the nearest nominal interval, every 8 weeks:
+
+```{r}
+dose_times_min <- c(0, 1440, 2880, 4320)
+find.dose.regimen(dose_times_min)[, c("interval", "label")]
+find.dose.regimen(dose_times_min, timeu = "min")[, c("interval", "label")]
+```
+
+Give `timeu` to `PKNCAconc()` whenever the times are not in hours (together with the other base units; see above). An interval that matches no nominal interval gives the `pknca_warning_tau_not_nominal` warning, and without the units package a `timeu` other than hours gives the `pknca_message_tau_units_fallback` message and leaves the interval to the dose times. Interval and regimen detection are covered in the [Automatic Intervals and Dosing Regimens chapter](auto-intervals.qmd).
+
+With date-time (`POSIXct`) concentration and dose times, the analysis unit is `timeu_pref` when given, otherwise `timeu`, otherwise hours, and the times are converted directly into it; see the [Date-Time Data and Time References chapter](datetime.qmd).
+
+---
+
+## Units of secondary parameters (≥ 0.13.0)
+
+A secondary parameter, such as a renal clearance or a metabolite ratio, is calculated from values of two different profiles, and its unit is composed from the units of the values it was actually calculated from. A renal clearance dividing a urine amount in `mg` by a plasma AUC in `hr*ng/mL` is reported in `mg/(hr*ng/mL)`, not in units built from the urine group alone. The composition happens in the units table, which gains `<group column>_ref` columns and one row per pair of groups, and results gain the same columns naming the group each secondary value took its reference from.
+
+No value is converted or made `NA` for unit reasons. Where the two sides of a quotient are convertible (a `ratio.*` of two analytes reported in `ng/mL` and `mg/L`), the raw quotient is standardized through `PPSTRES` to a `PPSTRESU` of `"fraction"`; where they are not (a bioavailability between a dose in `mg` and a dose in `mg/kg`), the composite units stand. An analysis with such a quotient therefore gains `PPSTRES` and `PPSTRESU` columns, which equal `PPORRES` and `PPORRESU` for every other parameter. Worked examples are in the [Secondary Parameters chapter](secondary-parameters.qmd).
+
+---
+
 ## Summary
 
 | Goal | How |
 |------|-----|
 | Assign units at data creation | `concu`, `timeu`, `doseu` args in `PKNCAconc()` / `PKNCAdose()` |
 | Build a complete unit table | `pknca_units_table(concu, doseu, amountu, timeu)` |
+| Build the units table from the unit arguments (≥ 0.13.0) | Automatic in `PKNCAdata()` when `units` is not given |
 | Pass units to the analysis | `PKNCAdata(..., units = u)` |
 | Convert to preferred output units | Add `concu_pref`, `timeu_pref`, etc. to `pknca_units_table()` |
 | Custom / non-metric conversions | `conversions` argument in `pknca_units_table()` |
 | Inspect units in results | `as.data.frame(res)$PPORRESU` |
-| Extract units from a PKNCAdata object (≥ 0.12.2) | `pknca_units_table(o_data)` |
+| Extract units from a PKNCAdata object (≥ 0.13.0) | `pknca_units_table(o_data)` |
+| Match dosing intervals in the right unit (≥ 0.13.0) | `timeu` in `PKNCAconc()` (unitless times are hours) |
 | Allow some parameters without units (≥ 0.12.0) | `PKNCA.options(allow_partial_missing_units = TRUE)` |
 
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [find.dose.regimen()](https://humanpred.github.io/pknca/reference/find.dose.regimen.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

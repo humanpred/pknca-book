@@ -41,6 +41,11 @@ jobs:
             any::conflicted
             any::visNetwork
             any::tidyr
+            any::units
+            any::lme4
+            any::lmerTest
+            any::emmeans
+            github::humanpred/cdiscdata
             github::humanpred/pknca
 
       # Fails the job (non-zero exit) if any documented example check fails

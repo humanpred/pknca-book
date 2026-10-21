@@ -8,26 +8,26 @@ library(dplyr)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-PKNCA does not build a complete submission dataset for you, but it comes close: its tidy, long-format result table maps directly onto the CDISC PP (Pharmacokinetic Parameters) domain, and as of version 0.12.2 `as.data.frame()` can translate parameter codes into CDISC standard codes directly (see the CDISC output format section below). This page documents that mapping and describes how to prepare outputs for regulatory submissions. For PKNCA's regulator-facing overview, see [PKNCA – an R package for noncompartmental analysis](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
+PKNCA does not build a complete submission dataset for you, but it comes close: its tidy, long-format result table maps directly onto the CDISC PP (Pharmacokinetic Parameters) domain, and as of version 0.13.0 `as.data.frame(out_format = "cdisc")` translates parameter codes into CDISC standard codes and adds the SDTM time point reference, method, and group identifier columns (see the CDISC output format section below). This page documents that mapping and describes how to prepare outputs for regulatory submissions. For PKNCA's regulator-facing overview, see [PKNCA – an R package for noncompartmental analysis](https://humanpred.github.io/pknca/articles/v31-FDA-introduction.html).
 
 ```{r build-result, include=FALSE}
 data("Theoph")
-d_conc <- PKNCAconc(Theoph, conc ~ Time | Subject)
-d_dose <- PKNCAdose(
+o_conc <- PKNCAconc(Theoph, conc ~ Time | Subject)
+o_dose <- PKNCAdose(
   Theoph |> group_by(Subject) |>
     summarise(Dose = Dose[1] * Wt[1], .groups = "drop") |>
     mutate(Time = 0),
   Dose ~ Time | Subject
 )
-d_data <- PKNCAdata(d_conc, d_dose)
-o_nca <- pk.nca(d_data)
+o_data <- PKNCAdata(o_conc, o_dose)
+o_nca <- pk.nca(o_data)
 ```
 
 ---
 
 ## CDISC PP domain alignment
 
-The CDISC PP domain stores one parameter value per row, with the parameter code in `PPTESTCD` and the original result in `PPORRES`. When a units table is provided, PKNCA additionally fills its own standardized-result column, `PPSTRES`; the corresponding CDISC SDTM variables are `PPSTRESC` (character) and `PPSTRESN` (numeric). PKNCA's `as.data.frame()` output follows exactly this long-format convention.
+The CDISC PP domain stores one parameter value per row, with the parameter code in `PPTESTCD` and the original result in `PPORRES`. With any units table, PKNCA adds the original-unit column `PPORRESU`; when preferred units or custom conversions are requested, it also fills its standardized-result columns, `PPSTRES` and `PPSTRESU` (the corresponding CDISC SDTM variables are `PPSTRESC` (character), `PPSTRESN` (numeric), and `PPSTRESU`). PKNCA's `as.data.frame()` output follows exactly this long-format convention.
 
 ```{r result-columns}
 df <- as.data.frame(o_nca)
@@ -38,14 +38,15 @@ The columns map to CDISC PP variables as follows:
 
 | PKNCA column | CDISC PP variable | Notes                                                  |
 |--------------|-------------------|--------------------------------------------------------|
-| `PPTESTCD`   | `PPTESTCD`        | Parameter short name; identical names by convention    |
+| `PPTESTCD`   | `PPTESTCD`        | PKNCA parameter name (`auclast`); translated to the CDISC code (`AUCLST`) by `out_format = "cdisc"` |
 | `PPORRES`    | `PPORRES`         | Original numeric result (character in CDISC; numeric here) |
-| `start`      | —                 | Interval start time; useful for `PPRFTDTC` derivation |
-| `end`        | —                 | Interval end time                                      |
+| `PPANMETH`   | `PPANMETH`        | Analysis method (≥ 0.13.0): imputation and the AUC and half-life methods used |
+| `start`      | —                 | Interval start, relative to the first dose; `out_format = "cdisc"` adds `PPSTINT` relative to the dose that starts the interval |
+| `end`        | —                 | Interval end, relative to the first dose; `out_format = "cdisc"` adds `PPENINT` |
 | `exclude`    | `PPSTAT` / `PPREASND` (or a supplemental qualifier) | Non-`NA` string gives the exclusion reason |
 | Grouping columns (`Subject`, etc.) | `USUBJID`, `PPCAT` | Pass through unchanged |
 
-Units (`PPORRESU`, `PPSTRESU`) are available when you configure a units table via `pknca_units_table()` and pass it to `PKNCAdata()`. Without a units table, `PPORRES` carries the raw numeric value and unit derivation must be done externally. For the full units workflow, see the [Units chapter](units.qmd) and [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html).
+The `PPORRESU` column is added whenever the data have units: either unit arguments (`concu`, `timeu`, `doseu`, ...) given to `PKNCAconc()` and `PKNCAdose()`, from which `PKNCAdata()` builds the units table automatically (≥ 0.13.0), or a table from `pknca_units_table()` passed to `PKNCAdata()`. `PPSTRES` and `PPSTRESU` are added only when the units table requests preferred units (`concu_pref`, `timeu_pref`, ...) or custom conversions. Without units, `PPORRES` carries the raw numeric value and unit derivation must be done externally. For the full units workflow, see the [Units chapter](units.qmd) and [Unit Assignment and Conversion with PKNCA](https://humanpred.github.io/pknca/articles/v07-unit-conversion.html).
 
 ```{r result-head}
 head(df, 10)
@@ -80,7 +81,7 @@ All grouping variables will appear as columns in the long-format result, ready t
 
 ## Extracting results for submission
 
-`as.data.frame(o_nca)` returns the individual (subject-level) long-format table. This is the primary output for PP domain construction. The `PPTESTCD` and `PPORRES` columns are already CDISC-named, so no renaming is needed:
+`as.data.frame(o_nca)` returns the individual (subject-level) long-format table. This is the primary output for PP domain construction. The `PPTESTCD` and `PPORRES` column names are already the CDISC variable names, so no renaming is needed; the `PPTESTCD` values are PKNCA's parameter names until they are translated with `out_format = "cdisc"` (next section):
 
 ```{r extract-individual}
 pp_domain_draft <- as.data.frame(o_nca)
@@ -96,19 +97,99 @@ The result is in tidy long format: one row per subject per parameter per interva
 
 ---
 
-## CDISC output format (≥ 0.12.2)
+## CDISC output format (≥ 0.13.0)
 
-The long-format extraction above keeps PKNCA's own parameter codes in `PPTESTCD` — `auclast`, `cmax`, `lambda.z`, and so on. For submission datasets, `as.data.frame()` can translate those codes for you: `out_format = "cdisc"` replaces each `PPTESTCD` with its CDISC submission code (`auclast` becomes `AUCLST`, `clast.obs` becomes `CLST`, `lambda.z` becomes `LAMZ`) and inserts a `PPTEST` column carrying the standard parameter label. Route-dependent parameters resolve to the correct code based on the route recorded in the dose data.
+The long-format extraction above keeps PKNCA's own parameter codes in `PPTESTCD` — `auclast`, `cmax`, `lambda.z`, and so on. For submission datasets, `as.data.frame(out_format = "cdisc")` translates them and adds the SDTM PP columns that PKNCA can fill:
+
+- `PPTESTCD` holds the CDISC submission code (`auclast` becomes `AUCLST`, `clast.obs` becomes `CLST`, `lambda.z` becomes `LAMZ`) and a new `PPTEST` column holds the standard parameter name.
+- A new `pknca_parameter` column, placed just before `PPTESTCD`, keeps the original PKNCA parameter name.
+- `PPSTINT`, `PPENINT`, `PPTPTREF`, and (for date-time data) `PPRFTDTC` give every row its time point reference.
+- `PPGRPID` gives the record group identifier.
 
 ```{r cdisc-format}
-as.data.frame(o_nca, out_format = "cdisc") |>
-  select(Subject, PPTESTCD, PPTEST, PPORRES) |>
+df_cdisc <- as.data.frame(o_nca, out_format = "cdisc")
+names(df_cdisc)
+
+df_cdisc |>
+  select(Subject, pknca_parameter, PPTESTCD, PPTEST, PPORRES) |>
   head(8)
 ```
 
-When an interval-based parameter is requested (for example `aucint.last`, whose CDISC code `AUCINT` contains "INT"), the CDISC output also gains `PPSTINT` and `PPENINT` columns giving the interval start and end as ISO 8601 durations relative to the last dose time (e.g. `PT0H`, `PT12H`).
+### Parameter codes and the `pknca_parameter` column
 
-Custom parameters registered with `add.interval.col()` can declare their own CDISC codes through its `pptestcd_cdisc` and `pptest_cdisc` arguments; a parameter without a declared code keeps its PKNCA name in the CDISC output. See the [Writing Custom Parameter Functions chapter](custom-parameters.qmd).
+The translation is many-to-one. CDISC has one "AUC from T1 to T2" code regardless of how the region after Tlast is handled, so `aucint.last` and `aucint.inf.obs` both become `AUCINT`. The `pknca_parameter` column is then the only column that identifies which PKNCA calculation produced a row, and `PPANMETH` records the method. The column name is lowercase so that it cannot be mistaken for an SDTM PP variable; drop it before submission.
+
+```{r cdisc-many-to-one}
+o_nca_aucint <- pk.nca(PKNCAdata(
+  o_conc, o_dose,
+  intervals = data.frame(start = 0, end = 48, aucint.last = TRUE, aucint.inf.obs = TRUE)
+))
+as.data.frame(o_nca_aucint, out_format = "cdisc", filter_requested = TRUE) |>
+  filter(Subject == "1") |>
+  select(pknca_parameter, PPTESTCD, PPORRES, PPANMETH)
+```
+
+Route-dependent parameters resolve to the code for the route recorded in the dose data: `cl.obs` is `CLFO` ("Total CL Obs by F") after an extravascular dose and `CLO` ("Total CL Obs") after an intravascular one. The same applies to the volume and MRT parameters.
+
+`pknca_cdisc_codes()` (≥ 0.13.0) lists every registered code, one row per route or dense/sparse variant, generated from the parameter registry at call time (so it includes parameters registered by other packages):
+
+```{r cdisc-codes}
+d_codes <- pknca_cdisc_codes()
+nrow(d_codes)
+d_codes |>
+  filter(parameter %in% c("auclast", "aucint.last", "aucint.inf.obs", "cl.obs", "count_conc"))
+```
+
+The `in_ct` column says whether each code is a term of the CDISC PKPARMCD codelist. It is checked against the cdiscdata package (a suggested dependency, ≥ 0.2.0); when cdiscdata is not installed, `in_ct` is `NA` for every row, with a message. Every `"common"` tier parameter has a real PKPARMCD code except `count_conc`, `sparse_auc_se`, and `cl.int.inf.obs`, which have no CDISC PP code; a parameter with no CDISC equivalent keeps a sponsor-defined code.
+
+### The method column (`PPANMETH`)
+
+Every `pk.nca()` result has a `PPANMETH` column (≥ 0.13.0) describing the analysis methods used for that parameter: the imputation, the AUC integration method, and, for `aucint` and `aumcint` parameters, whether the calculation was dose-aware and how the region after Tlast was handled (in the example above, `Extrapolation: AUClast` for `aucint.last`, which stops at Tlast, and `Extrapolation: half-life` for `aucint.inf.obs`). A parameter with no method of its own, such as `cmax`, shows only the imputation, or nothing when no imputation was used. When a calculation function sets no method at run time, `PPANMETH` falls back to the parameter's registered `formula_note`.
+
+### Time point references
+
+Every row of the CDISC output, not only interval-based parameters, gets `PPSTINT` and `PPENINT` (the interval start and end as ISO 8601 durations, such as `"PT0H"` and `"PT24H"`) relative to the reference named in `PPTPTREF`. The reference is the last dose at or before the interval start (`"LAST DOSE PRIOR TO INTERVAL"`), or the first concentration for a subject without a dose (`"FIRST OBSERVATION"`). `PPENINT` is `NA` for an interval to infinity, as in this single-dose analysis:
+
+```{r cdisc-time}
+df_cdisc |>
+  select(Subject, start, end, PPTESTCD, PPSTINT, PPENINT, PPTPTREF) |>
+  head(3)
+```
+
+When the concentration and dose times are date-times, `PPRFTDTC` gives the reference's date-time, so it no longer has to be derived outside PKNCA. The [Date-Time Data and Time References chapter](datetime.qmd) shows these columns for a multiple-dose study with date-time data.
+
+### Record group identifier (`PPGRPID`)
+
+`PPGRPID` identifies the rows of one interval: `"<prefix1><value1>.<prefix2><value2>.I<nn>"`, built from the grouping columns named in `grpid_cols` and the number of the row's interval within each combination of the subject, the analyte, and those columns. Without `grpid_cols` it is just the interval number (`"I01"` above). `grpid_cols` is a named character vector of `PKNCAconc()` grouping columns (other than the subject and analyte), each with the text written before its value; `grpid_numeric` names the columns whose values are whole numbers, such as the period, to be written as that number. Both can be given to `PKNCAdata()`, as the default for every output of one analysis, or to `as.data.frame()`.
+
+For a two-period crossover (built here by repeating the Theoph data as a second period), with two intervals per period:
+
+```{r cdisc-grpid}
+d_conc_xover <- bind_rows(
+  as.data.frame(Theoph) |> mutate(Period = 1),
+  as.data.frame(Theoph) |> mutate(Period = 2)
+)
+d_dose_xover <- d_conc_xover |>
+  group_by(Period, Subject) |>
+  summarise(Dose = Dose[1] * Wt[1], Time = 0, .groups = "drop")
+
+o_data_xover <- PKNCAdata(
+  PKNCAconc(d_conc_xover, conc ~ Time | Period + Subject),
+  PKNCAdose(d_dose_xover, Dose ~ Time | Period + Subject),
+  intervals = data.frame(start = 0, end = c(24, Inf), auclast = TRUE),
+  grpid_cols = c(Period = "P"),
+  grpid_numeric = "Period"
+)
+as.data.frame(pk.nca(o_data_xover), out_format = "cdisc") |>
+  filter(Subject == "1") |>
+  select(Period, Subject, start, end, PPTESTCD, PPSTINT, PPENINT, PPGRPID)
+```
+
+Within each subject and period, the intervals are numbered from 1 by start and then end, and every parameter of one interval shares the number. The number is written with at least two digits (more when needed) so that the text sorts in time order. `grpid_cols = character()` in `as.data.frame()` gives the interval-only identifier regardless of the `PKNCAdata()` default.
+
+### Codes for custom parameters
+
+Custom parameters registered with `add.interval.col()` declare their CDISC codes through its `pptestcd_cdisc` and `pptest_cdisc` arguments. Each is a character string; a list with one element named `route` holding a named list of codes per route (for route-dependent parameters such as CL, VZ, MRT, and VSS); or a list of exactly the elements `dense` and `sparse`. A parameter without a declared code keeps its PKNCA name in the CDISC output. See the [Writing Custom Parameter Functions chapter](custom-parameters.qmd).
 
 ---
 
@@ -124,7 +205,7 @@ table(is.na(df$exclude))
 df |> filter(!is.na(exclude)) |> head()
 ```
 
-Exclusions are set programmatically via the `exclude_nca_*` family of functions (e.g. `exclude_nca_max.aucinf.pext()`, `exclude_nca_min.hl.r.squared()`), or manually via `exclude()`. The rule functions supply their own exclusion reason text (e.g. `exclude_nca_min.hl.r.squared(0.9)` records `r.squared < 0.9`), so no `reason=` argument is needed. For regulatory submissions, include all rows in the PP domain — both included and excluded. Exclusion is typically represented via `PPSTAT`/`PPREASND` (status and reason not done) or a supplemental qualifier; PKNCA's `exclude` column provides the source text for whichever convention your submission uses. Exclusion workflows are covered in the [Post-Processing chapter](postprocessing.qmd) and [vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html).
+Exclusions are set programmatically via the `exclude_nca_*` family of functions (e.g. `exclude_nca_max.aucinf.pext()`, `exclude_nca_min.hl.r.squared()`), or manually via `exclude()`. The rule functions supply their own exclusion reason text (e.g. `exclude_nca_min.hl.r.squared(0.9)` records `r.squared < 0.9`), so no `reason=` argument is needed. For regulatory submissions, include all rows in the PP domain — both included and excluded. Exclusion is typically represented via `PPSTAT`/`PPREASND` (status and reason not done) or a supplemental qualifier; PKNCA's `exclude` column provides the source text for whichever convention your submission uses. Exclusion workflows are covered in the [Post-Processing chapter](postprocessing.qmd) and [vignette](https://humanpred.github.io/pknca/articles/v07-post-processing.html), and data-quality rules such as Tmax coverage and missing samples in the [Data Quality Checks chapter](data-quality.qmd).
 
 ```{r exclude-nca-example}
 # Apply standard exclusion rules and inspect excluded rows
@@ -189,9 +270,25 @@ renv::restore()
 
 Together, `PKNCA.options()`, `sessionInfo()`, and `renv` provide the three layers of reproducibility documentation expected for regulatory NCA submissions.
 
+### Provenance of results
+
+PKNCA objects carry a provenance record (a hash of the object, the creation time, and the R and PKNCA versions), and `checkProvenance()` confirms that an object is unchanged since PKNCA created it:
+
+```{r provenance}
+checkProvenance(o_nca)
+```
+
+A `PKNCAresults` object changed after the run by `filter()`, `mutate()`, `group_by()`, `ungroup()`, the joins, `exclude()`, or `normalize()` no longer vouches for itself (≥ 0.13.0): its provenance becomes a marker such as `"filtered from <hash>"` and `checkProvenance()` returns `FALSE`. A call that leaves the object identical keeps its provenance.
+
+```{r provenance-modified}
+checkProvenance(o_nca_excl)
+```
+
+For a submission, keep the unmodified `PKNCAresults` object with the analysis outputs, so that the reported numbers can be traced to an intact run, and record the exclusions applied to it in the analysis script.
+
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame.PKNCAresults()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_*()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame.PKNCAresults()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [pknca_cdisc_codes()](https://humanpred.github.io/pknca/reference/pknca_cdisc_codes.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html) · [checkProvenance()](https://humanpred.github.io/pknca/reference/checkProvenance.html) · [exclude()](https://humanpred.github.io/pknca/reference/exclude.html) · [exclude_nca_*()](https://humanpred.github.io/pknca/reference/exclude_nca.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
 :::

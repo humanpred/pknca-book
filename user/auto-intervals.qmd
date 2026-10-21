@@ -1,0 +1,439 @@
+---
+title: "Automatic Intervals and Dosing Regimens"
+---
+
+```{r setup, include=FALSE}
+library(PKNCA)
+library(dplyr)
+conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
+```
+
+## When PKNCA chooses the intervals (≥ 0.13.0)
+
+If `PKNCAdata()` is given no `intervals`, it builds them for each group from the concentration and dose times with `choose.auc.intervals()`. This chapter covers how those intervals are chosen, how the dosing interval (τ) is found from the dose times, and the warnings PKNCA gives when the dosing does not follow a clean pattern. To write intervals yourself, see [Intervals](intervals.qmd); the package vignette [Selection of Calculation Intervals](https://humanpred.github.io/pknca/articles/v03-selection-of-calculation-intervals.html) gives the same rules in reference form.
+
+In PKNCA 0.13.0 the parameters in each generated interval come from `pknca_interval_table()`, which picks the parameters and the imputation that suit the interval's context. The `auto.interval.method` option names this approach `"builder"` (the default). There are three contexts:
+
+| Context | When | Imputation | AUC family |
+|---|---|---|---|
+| Single dose | One dose, or a dose followed by a washout | `start_predose_conc0` | `auclast`, `aucinf.obs` |
+| Dosing interval | Between two doses whose samples run up to the next dose | `start_cmin` | `aucint.last`, `aucint.inf.obs` |
+| Steady state | One τ after the last dose | `start_predose` | `aucint.last`, `aucint.inf.obs` |
+
+A sparse design imputes nothing except a zero at the start of a single dose (see [Sparse Sampling](sparse.qmd)). The imputation methods themselves are described in [Imputation](imputation.qmd).
+
+The rules, applied group by group, are:
+
+- A group with no dose times gives no intervals (`pknca_warning_no_dose_times_for_group`).
+- A single dose with any sample after it gives one interval from the dose to infinity.
+- Two consecutive doses with a sample at each dose time and at least one sample between them give an interval between them. It is a dosing interval when the samples run up to the next dose, and a single-dose profile when they stop partway, leaving a washout.
+- For the last dose, τ is found with `find.tau()`. If a sample ends it, an interval one τ long is generated as a steady-state interval. It starts at the first dose of the last complete dosing cycle, so it never contains a dose that was not recorded. If samples continue past it, `half.life` is calculated from the last dose to infinity. If the last dose gets neither, its profile is calculated to infinity as a single dose.
+- When the dose times change regimen, the intervals are chosen segment by segment instead (see [A change of regimen](#a-change-of-regimen)).
+
+Two helpers keep the examples short. `show_intervals()` collapses the logical parameter columns of an interval specification into one `parameters` column. The specification itself has a column for every registered parameter. `conc_1cpt()` simulates one-compartment oral concentrations for any set of dose times:
+
+```{r}
+# One row per interval: the non-parameter columns, then the requested parameters
+show_intervals <- function(intervals) {
+  intervals <- as.data.frame(intervals)
+  param_cols <- names(intervals)[vapply(intervals, is.logical, logical(1))]
+  ret <- intervals[, setdiff(names(intervals), param_cols), drop = FALSE]
+  ret$parameters <-
+    apply(intervals[, param_cols, drop = FALSE], 1,
+          function(x) paste(param_cols[x], collapse = ", "))
+  ret
+}
+
+# One-compartment oral model with superposition over every earlier dose
+conc_1cpt <- function(time, dose_times, dose = 100, ka = 1, ke = 0.1, v = 10) {
+  vapply(time, function(t) {
+    since_dose <- t - dose_times[dose_times <= t]
+    sum(dose / v * ka / (ka - ke) * (exp(-ke * since_dose) - exp(-ka * since_dose)))
+  }, numeric(1))
+}
+```
+
+---
+
+## A single dose
+
+Theophylline is a single oral dose per subject:
+
+```{r}
+d_conc_theoph <- as.data.frame(datasets::Theoph)
+d_dose_theoph <- d_conc_theoph |>
+  filter(Time == 0) |>
+  select(Subject, Dose, Time)
+
+o_conc_theoph <- PKNCAconc(d_conc_theoph, conc ~ Time | Subject)
+o_dose_theoph <- PKNCAdose(d_dose_theoph, Dose ~ Time | Subject)
+o_data_theoph <- PKNCAdata(o_conc_theoph, o_dose_theoph)
+
+show_intervals(o_data_theoph$intervals) |> head(3)
+```
+
+Each subject gets one interval from the dose to infinity. That interval requests `auclast`, `aucinf.obs`, `cmax`, `tmax`, `tlag`, `half.life`, `aucpext.obs`, `cl.obs`, and `count_conc`, with `start_predose_conc0` imputation. That imputation carries a predose sample to the dose time, or imputes a concentration of 0 there if there is none.
+
+::: {.callout-important}
+## Default results changed in 0.13.0
+
+Before 0.13.0, single-dose data got two automatic intervals, AUClast over 0 to 24 and a 0 to infinity interval, with no imputation. Now:
+
+- There is no separate 0 to 24 AUClast, so the interval no longer assumes that time is in hours.
+- **AUC values change when no sample sits at the dose time.** The concentration at the dose is now imputed, so AUClast is integrated from the dose instead of from the first sample.
+- The default parameters gain `tlag`, `count_conc`, `aucpext.obs`, and `cl.obs`.
+:::
+
+### Going back to the legacy parameter lists
+
+`auto.interval.method = "legacy"` restores the earlier parameter lists: the `single.dose.aucs` option for single-dose data, and `auclast`, `cmax`, and `tmax` for each interval of multiple-dose data. Only the parameters differ; the intervals are found the same way either way.
+
+```{r}
+o_data_legacy <- PKNCAdata(o_conc_theoph, o_dose_theoph,
+                           options = list(auto.interval.method = "legacy"))
+show_intervals(o_data_legacy$intervals) |> head(2)
+```
+
+The default `single.dose.aucs` ends its first interval at 24, which assumes hours. With the legacy method and a time unit other than hours given to `PKNCAconc(timeu = )`, PKNCA gives a `pknca_warning_single_dose_aucs_unit` warning, because the interval would end at 24 of that unit.
+
+---
+
+## Once-daily dosing to steady state
+
+Two subjects take 100 mg once daily for seven days. They have a full profile after the first dose and after the last, with troughs in between and two samples after the last dosing interval:
+
+```{r}
+d_dose_qd <- data.frame(ID = rep(1:2, each = 7),
+                        time = rep(seq(0, 144, by = 24), 2),
+                        dose = 100)
+times_qd <- c(0, 0.5, 1, 2, 4, 8, 12, 24, 48, 72, 96, 120,
+              144, 144.5, 145, 146, 148, 152, 156, 168, 192, 216)
+d_conc_qd <- bind_rows(
+  data.frame(ID = 1, time = times_qd,
+             conc = conc_1cpt(times_qd, seq(0, 144, by = 24), ke = 0.1)),
+  data.frame(ID = 2, time = times_qd,
+             conc = conc_1cpt(times_qd, seq(0, 144, by = 24), ke = 0.07))
+)
+
+o_data_qd <- PKNCAdata(PKNCAconc(d_conc_qd, conc ~ time | ID),
+                       PKNCAdose(d_dose_qd, dose ~ time | ID))
+show_intervals(o_data_qd$intervals)
+```
+
+Each subject gets three intervals:
+
+- **0 to 24**, the first dosing interval: the samples at 0 and 24 bound it and the samples between run up to the next dose. It is a dosing interval with `start_cmin` imputation and the `aucint.*` parameters.
+- **144 to 168**, one τ after the last dose: `find.tau()` finds τ = 24 from the dose times, and the sample at 168 ends the interval. It is a steady-state interval with `start_predose` imputation.
+- **144 to infinity**, with only `half.life`, because the samples at 192 and 216 continue past τ.
+
+There is no interval for 24 to 48 and so on, because nothing was sampled between those troughs.
+
+```{r}
+o_nca_qd <- pk.nca(o_data_qd)
+
+as.data.frame(o_nca_qd) |>
+  filter(PPTESTCD %in% c("aucint.last", "cmax", "cl.int.inf.obs", "half.life")) |>
+  select(ID, start, end, PPTESTCD, PPORRES) |>
+  tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES)
+```
+
+The steady-state clearance from the 144 to 168 hour interval is close to the simulated values (1 L/h for subject 1 and 0.7 L/h for subject 2). The same parameter over the first dosing interval is higher, because the first interval has not accumulated to steady state.
+
+### Adding parameters to a generated interval
+
+The generated intervals are an ordinary interval specification, so they can be edited before `pk.nca()`. `interval_add_param()` with `target_groups` adds the multiple-dose MRT and Vss to the steady-state interval only. τ for those parameters is detected from the dose times (a `tau` column in the intervals would take precedence; see [Multiple-Dose and Steady-State](multiple-dose.qmd#multiple-dose-mrt-and-vss)):
+
+```{r}
+o_data_qd_md <- interval_add_param(
+  o_data_qd,
+  param = c("mrt.md.obs", "vss.md.obs"),
+  target_groups = data.frame(start = 144, end = 168)
+)
+
+pk.nca(o_data_qd_md) |>
+  as.data.frame() |>
+  filter(PPTESTCD %in% c("mrt.md.obs", "vss.md.obs")) |>
+  select(ID, start, end, PPTESTCD, PPORRES)
+```
+
+For a one-compartment oral model, MRT is 1/ke + 1/ka: 11 hours for subject 1 and about 15.3 hours for subject 2, which matches the estimates.
+
+---
+
+## How the dosing interval is found
+
+### `find.tau()` and `find.dose.regimen()`
+
+`find.tau()` returns the dosing interval for one subject's dose times. It returns `NA` when there are no dose times or when nothing repeats, and 0 for a single dose time:
+
+```{r}
+find.tau(c(0, 24, 48, 72))     # equally spaced
+find.tau(0)                    # a single dose
+find.tau(numeric(0))           # no doses
+find.tau(c(0, 5, 31, 100))     # no interval repeats
+```
+
+The interval comes from `find.dose.regimen()`, which describes the whole regimen as a table with one row per segment: the period the doses repeat over (`interval`), a nominal `label`, whether the interval was snapped to a nominal value (`source`), counts of missed and off-schedule doses, and the dose times within one period (`offsets`). `find.tau()` reports the period of the segment with the most doses.
+
+```{r}
+# Twice daily at breakfast (0 h) and dinner (10 h)
+find.dose.regimen(c(0, 10, 24, 34, 48, 58), timeu = "hr")
+```
+
+Twice-daily dosing at 0 and 10 hours repeats every 24 hours with offsets 0 and 10, labeled `"BID"` (two doses per day). PKNCA looks for a pattern that repeats over the whole regimen before reading a gap as a missed dose. So three-times-daily dosing with an overnight gap is a daily regimen, not a 6-hour regimen with doses missing:
+
+```{r}
+find.tau(c(0, 6, 12, 24, 30, 36, 48, 54, 60))
+```
+
+The dose times are sorted and duplicates are dropped first, so the order of the dosing rows and a dose recorded twice do not change the answer.
+
+### Nominal intervals and time units
+
+Dose times are matched to the usual nominal intervals within a tolerance on the log scale. The built-in set runs from every 4 hours to every 12 weeks: Q4H, QID (6 h), TID (8 h), BID (12 h), QD (24 h), QOD (48 h), Q72H, QW, Q2W, Q3W, Q4W, Q6W, Q8W, and Q12W. So doses recorded a little early or late still give the nominal interval:
+
+```{r}
+find.tau(c(0, 23.6, 48, 72.4, 96), timeu = "hr")
+```
+
+**Times without a unit are taken to be hours.** So `find.tau(c(0, 24, 50))` is the once-daily 24, not the median spacing of 25:
+
+```{r}
+find.tau(c(0, 24, 50))
+```
+
+Data recorded in another unit should say so. Daily doses recorded in days, without `timeu`, are compared with intervals in hours. The interval of 1 matches none of them, so PKNCA reports it as found in the data with a `pknca_warning_tau_not_nominal` warning that includes the regimen table:
+
+```{r}
+find.tau(c(0, 1, 2, 3))
+find.tau(c(0, 1, 2, 3), timeu = "day")
+```
+
+Inside `PKNCAdata()` and `pk.nca()`, the unit is the `timeu` given to `PKNCAconc()` (see [Units](units.qmd)). How other units are handled:
+
+- **Unit that cannot be converted to hours:** `find.tau()` and `find.dose.regimen()` stop with `pknca_error_regimen_time_unit`. `PKNCAdata()` uses the dose times alone instead. `timeu = NA` asks for the dose times alone explicitly.
+- **Units package not installed:** a unit other than `"hr"` gives a `pknca_message_tau_units_fallback` message, once for each group, and the interval found in the dose times is used. Results for data in other units can therefore differ between installations with and without the units package.
+
+### Restricting the choices with `tau.choices`
+
+The `tau.choices` option replaces the built-in nominal set. Its names become the labels. `PKNCAdata(options = list(tau.choices = ...))` is honored when intervals are generated.
+
+```{r}
+find.dose.regimen(c(0, 12, 24, 36, 48), tau.choices = c(q12h = 12, daily = 24))
+```
+
+An interval that matches none of the choices is reported as found in the data, with a `pknca_warning_tau_not_nominal` warning.
+
+---
+
+## Irregular dosing
+
+### A missed dose
+
+The subject below missed the 72-hour dose. `find.dose.regimen()` still reads the regimen as once daily, and `PKNCAdata()` gives a `pknca_warning_tau_irregular_dosing` warning that names the gap. Warnings from `PKNCAdata()` start with the group they apply to:
+
+```{r}
+d_dose_missed <- data.frame(ID = 3, time = c(0, 24, 48, 96, 120, 144), dose = 100)
+times_missed <- c(0, 0.5, 1, 2, 4, 8, 12, 24, 48, 72, 96, 120,
+                  144, 144.5, 145, 146, 148, 152, 156, 168)
+d_conc_missed <- data.frame(ID = 3, time = times_missed,
+                            conc = conc_1cpt(times_missed, d_dose_missed$time))
+
+o_data_missed <- PKNCAdata(PKNCAconc(d_conc_missed, conc ~ time | ID),
+                           PKNCAdose(d_dose_missed, dose ~ time | ID))
+show_intervals(o_data_missed$intervals)[, c("ID", "start", "end", "impute")]
+```
+
+Two of the intervals are what full adherence would give: 0 to 24 and 144 to 168. The third runs from 48 to 96. It spans the missed dose because 48 and 96 are consecutive *recorded* doses with samples at both and a sample between them. It is calculated as a 48-hour dosing interval. If it should not be reported, remove that row from `o_data_missed$intervals` or give `intervals` yourself.
+
+### Doses given early or late
+
+`choose.auc.intervals()` is the function `PKNCAdata()` calls for each group. It takes the sample and dose times directly, which makes it handy for checking a design. Here once-daily doses were given at 0, 24.3, and 47.8 hours, and the profile after the last dose ends with a trough at 71.5 hours:
+
+```{r}
+doses_offtime <- c(0, 24.3, 47.8)
+samples_last <- c(0, 24.3, 47.8, 48.5, 49, 50, 52, 56)
+
+choose.auc.intervals(c(samples_last, 71.5), doses_offtime) |>
+  show_intervals()
+```
+
+The steady-state interval starts at the last dose (47.8) and runs one nominal τ (24 hours) to 71.8. An interval for the last dose never contains a later recorded dose. Before 0.13.0 this design gave 24.3 to 48.3, which contains the dose at 47.8.
+
+The tolerance for matching a sample to the end of an interval only reaches **backward**. A trough drawn at 72.0, after the 71.8 end, does not end the interval. So the last dose is calculated to infinity as a single-dose profile instead:
+
+```{r}
+choose.auc.intervals(c(samples_last, 72), doses_offtime) |>
+  show_intervals()
+```
+
+Check the generated intervals whenever doses are recorded off schedule. If the steady-state interval is the one you need, give it explicitly (see [Intervals](intervals.qmd)).
+
+### How close is close enough: `auto.interval.tolerance`
+
+A sample drawn a little before its nominal time still bounds the interval it belongs to. The window is the `auto.interval.tolerance` option, a fraction of the interval's length that defaults to 0.05 (1.2 hours for a 24-hour τ). With the last trough drawn at 167 instead of 168 hours, the steady-state interval is still found. With a tolerance of 0.01 (0.24 hours) it is not, and the last dose falls back to a single-dose profile:
+
+```{r}
+times_early_trough <- c(0, 1, 2, 4, 8, 24, 48, 72, 96, 120, 144, 145, 146, 148, 152, 167)
+dose_qd <- seq(0, 144, by = 24)
+
+choose.auc.intervals(times_early_trough, dose_qd)[, c("start", "end", "impute")]
+choose.auc.intervals(times_early_trough, dose_qd,
+                     options = list(auto.interval.tolerance = 0.01))[, c("start", "end", "impute")]
+```
+
+The window only reaches backward, so a concentration drawn just after a dose never stands in for the predose sample.
+
+---
+
+## A change of regimen
+
+When `find.dose.regimen()` finds more than one segment, the intervals for dense data follow the segments:
+
+- one steady-state interval for each segment at its own period, if a sample ends it;
+- the interval after the first dose;
+- the interval after any other dose that is sampled densely, meaning at least `dense.samples` samples (3 by default) within one period after it.
+
+A `pknca_warning_intervals_by_segment` warning names the segments and the intervals chosen. That warning also has the class `pknca_warning_tau_regimen_change`.
+
+The subject below takes 100 mg once daily for four days, then twice daily from 84 hours. There is a full profile after the first dose, after the 108-hour dose, and after the last dose. The samples were drawn 0.4 hours late after the 108-hour dose, so `time.nominal` gives the scheduled times:
+
+```{r}
+d_dose_switch <- data.frame(ID = 4, time = c(seq(0, 72, by = 24), seq(84, 156, by = 12)),
+                            dose = 100)
+times_nominal <- c(0, 0.5, 1, 2, 4, 8, 12, 24, 48, 72, 84, 96,
+                   108, 108.5, 109, 110, 112, 120, 132, 144,
+                   156, 156.5, 157, 158, 160, 164, 168)
+times_actual <- ifelse(times_nominal > 108 & times_nominal < 120,
+                       times_nominal + 0.4, times_nominal)
+d_conc_switch <- data.frame(ID = 4, time = times_actual, time_nom = times_nominal,
+                            conc = conc_1cpt(times_actual, d_dose_switch$time))
+
+o_data_switch <- PKNCAdata(
+  PKNCAconc(d_conc_switch, conc ~ time | ID, time.nominal = "time_nom"),
+  PKNCAdose(d_dose_switch, dose ~ time | ID)
+)
+show_intervals(o_data_switch$intervals)[, c("ID", "start", "end", "impute")]
+```
+
+The intervals are:
+
+- 0 to 24 after the first dose;
+- 48 to 72, the last complete once-daily cycle (an earlier segment's steady-state interval ends at the dose that starts its next cycle);
+- 108 to 120, the densely sampled twice-daily dose;
+- 156 to 168, one twice-daily period after the last dose.
+
+The last dose always uses the period of the last segment, here 12 hours, even when an earlier segment has more doses.
+
+Each sample counts once toward `dense.samples`: by its nominal time when the data carry `time.nominal`, by its actual time otherwise, and not at all if its concentration is missing. Nominal times must share the actual times' origin. Nominal times that restart at each dose (time since the latest dose) fall back to the actual times with a `pknca_warning_intervals_nominal_restart` warning. `choose.auc.intervals()` takes the same information through its `time.conc.nominal`, `time.dosing.nominal`, `conc`, and `dense.samples` arguments.
+
+Sparse designs and designs with a single regimen are not affected by this per-segment choice.
+
+---
+
+## Two periods separated by a washout
+
+When the samples after a dose stop well before the next dose, the gap is read as a washout, not a dosing interval. Each dose gets a single-dose interval, and the first one is bounded by the next dose:
+
+```{r}
+choose.auc.intervals(
+  time.conc = c(0, 0.5, 1, 2, 4, 8, 24, 48, 336, 336.5, 337, 338, 340, 344, 360, 384),
+  time.dosing = c(0, 336)
+) |>
+  show_intervals()
+```
+
+Before 0.13.0 this gave one AUClast that spanned the washout.
+
+---
+
+## Intravenous bolus
+
+`PKNCAdata()` passes the route recorded with the doses to `choose.auc.intervals()` through its `route` argument. For an IV bolus, PKNCA adds a second row with the same start and end that requests `c0`, the concentration back-extrapolated to the dose time, without imputation. Indomethacin was given as an IV bolus:
+
+```{r}
+d_conc_indo <- as.data.frame(datasets::Indometh)
+d_dose_indo <- data.frame(Subject = unique(d_conc_indo$Subject), dose = 25, time = 0)
+
+o_data_indo <- PKNCAdata(
+  PKNCAconc(d_conc_indo, conc ~ time | Subject),
+  PKNCAdose(d_dose_indo, dose ~ time | Subject, route = "intravascular")
+)
+show_intervals(o_data_indo$intervals) |> head(2)
+
+pk.nca(o_data_indo) |>
+  as.data.frame() |>
+  filter(Subject == 1, PPTESTCD %in% c("c0", "auclast", "aucinf.obs", "cl.obs")) |>
+  select(Subject, start, end, PPTESTCD, PPORRES, PPANMETH)
+```
+
+The main row keeps `start_predose_conc0` imputation. So `auclast` and `aucinf.obs` start from an imputed concentration of 0 at the dose, not from `c0`. The IV-specific AUCs that start from `c0` (`aucivlast`, `aucivinf.obs`) are covered in [Intravascular Dosing](intravascular.qmd); request them in your own intervals when the bolus AUC is what you need.
+
+If a group gives more than one route, PKNCA uses the first dose's route and gives a `pknca_warning_multiple_dose_routes` warning.
+
+---
+
+## When no interval can be made
+
+When the dose times do not repeat, τ cannot be found. PKNCA reports that the steady-state interval for the last dose was dropped (`pknca_warning_no_tau_for_intervals`) and calculates the last dose to infinity as a single dose instead:
+
+```{r}
+d_dose_irregular <- data.frame(ID = 5, time = c(0, 7, 31, 100), dose = 100)
+times_irregular <- c(0, 1, 2, 4, 7, 8, 10, 31, 32, 34, 100, 101, 102, 104, 108, 124)
+d_conc_irregular <- data.frame(ID = 5, time = times_irregular,
+                               conc = conc_1cpt(times_irregular, d_dose_irregular$time))
+
+o_data_irregular <- PKNCAdata(PKNCAconc(d_conc_irregular, conc ~ time | ID),
+                              PKNCAdose(d_dose_irregular, dose ~ time | ID))
+show_intervals(o_data_irregular$intervals)[, c("ID", "start", "end", "impute")]
+```
+
+The 0 to 7 interval is a dosing interval, because its samples run up to the next dose. The 7 to 31 and 31 to 100 intervals are single-dose profiles bounded by the next dose, because their samples stop well before it.
+
+When no group gets any interval, `PKNCAdata()` stops with a `pknca_error_no_intervals` error after the per-group warnings that explain why. Below, the only samples are at or before the dose:
+
+```{r}
+tryCatch(
+  PKNCAdata(PKNCAconc(data.frame(ID = 6, time = c(0, 5, 10), conc = c(0, 1, 2)),
+                      conc ~ time | ID),
+            PKNCAdose(data.frame(ID = 6, time = 10, dose = 100), dose ~ time | ID)),
+  pknca_error_no_intervals = function(e) conditionMessage(e)
+)
+```
+
+---
+
+## The warnings and messages you may see
+
+| Condition class | When it is given |
+|---|---|
+| `pknca_warning_tau_irregular_dosing` | Missed doses or doses off schedule; the message names them |
+| `pknca_warning_tau_not_nominal` | The interval matches no nominal interval (or no `tau.choices` value); includes the regimen table |
+| `pknca_warning_tau_regimen_change` | The regimen changes within the dose times; includes the regimen table |
+| `pknca_warning_intervals_by_segment` | Intervals were chosen per segment after a change of regimen (also a `pknca_warning_tau_regimen_change`) |
+| `pknca_warning_intervals_nominal_restart` | Nominal times restart at each dose, so actual times were used to judge dense sampling |
+| `pknca_warning_tau_undetermined` | `pk.nca()` could not find τ for a multiple-dose parameter such as `mrt.md.obs`; the parameter is `NA` (add a `tau` column to the intervals) |
+| `pknca_warning_no_tau_for_intervals` | τ could not be found, so no steady-state interval was generated for the last dose |
+| `pknca_warning_no_dose_times_for_group` | A concentration group has no dose rows |
+| `pknca_warning_no_intervals_limited_data` | A group got no automatically generated interval (for example, no sample after its dose) |
+| `pknca_warning_multiple_dose_routes` | A group gives more than one route; the first dose's route is used |
+| `pknca_warning_single_dose_aucs_unit` | The legacy single-dose intervals are used with a time unit other than hours |
+| `pknca_message_tau_units_fallback` | The units package is not installed, so times in a unit other than `"hr"` cannot be compared with the nominal intervals |
+| `pknca_error_no_intervals` | No group got an automatically generated interval |
+
+The first four, `pknca_warning_intervals_nominal_restart`, and `pknca_warning_tau_undetermined` share the parent class `pknca_warning_dose_regimen`. A script that has reviewed its regimens can therefore handle all of them at once without silencing other warnings:
+
+```{r}
+o_data_reviewed <- withCallingHandlers(
+  PKNCAdata(PKNCAconc(d_conc_missed, conc ~ time | ID),
+            PKNCAdose(d_dose_missed, dose ~ time | ID)),
+  pknca_warning_dose_regimen = function(w) invokeRestart("muffleWarning")
+)
+nrow(o_data_reviewed$intervals)
+```
+
+---
+
+::: {.callout-note icon=false appearance="minimal"}
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [choose.auc.intervals()](https://humanpred.github.io/pknca/reference/choose.auc.intervals.html) · [find.tau()](https://humanpred.github.io/pknca/reference/find.tau.html) · [find.dose.regimen()](https://humanpred.github.io/pknca/reference/find.dose.regimen.html) · [pknca_interval_table()](https://humanpred.github.io/pknca/reference/pknca_interval_table.html) · [interval_add_param()](https://humanpred.github.io/pknca/reference/interval_add_param.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+:::
