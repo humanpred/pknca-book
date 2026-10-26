@@ -45,7 +45,7 @@ jobs:
             any::lme4
             any::lmerTest
             any::emmeans
-            cdiscdata
+            any::cdiscdata
             github::humanpred/pknca
 
       # Fails the job (non-zero exit) if any documented example check fails
