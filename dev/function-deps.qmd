@@ -9,7 +9,7 @@ library(dplyr)
 conflicted::conflicts_prefer(dplyr::filter, dplyr::select, .quiet = TRUE)
 ```
 
-PKNCA resolves parameter dependencies automatically: when you request `aucinf.obs`, PKNCA internally ensures `lambda.z` is computed first because `aucinf.obs` depends on it. These dependencies are declared at registration time — every NCA parameter is registered via `add.interval.col()` with a `depends` vector naming the parameters that must be computed before it, and the full registry is accessible via `get.interval.cols()`. The graph below makes the whole dependency network explicit.
+PKNCA resolves parameter dependencies automatically: when you request `aucinf.obs`, PKNCA internally ensures `lambda.z` is computed first because `aucinf.obs` depends on it. These dependencies are declared at registration time — every NCA parameter is registered via `add.interval.col()` with a `depends` vector naming the parameters that must be computed before it, and the full registry is accessible via `get.interval.cols()`. The graph below makes the whole dependency network explicit. It shows `depends` only: a secondary parameter's inputs from its reference interval (declared with `pknca_ref()` in its `formalsmap`, such as the `auclast` that `ratio.auclast` reads from the reference interval) are not edges here.
 
 ## Interactive dependency graph
 
@@ -33,10 +33,10 @@ categorize <- function(name) {
   case_when(
     grepl("^auc",       name) ~ "AUC",
     grepl("^lambda|half\\.life|r\\.squared", name) ~ "Half-life / λz",
-    grepl("^cl\\.|^vz\\.|^vss", name) ~ "CL / Volume",
+    grepl("^cl\\.|^vz\\.|^vss|^kel", name) ~ "CL / Volume",
     grepl("^mrt",       name) ~ "MRT",
     grepl("^c(max|min|0|last|first)|^t(max|min|last|first|lag)|^clast", name) ~ "Cmax / Tmax",
-    grepl("^f$|bioavail|^ae|^fe|^clr|^vd",  name) ~ "Bioavailability / Renal",
+    grepl("^f\\.|^ratio\\.|^ae|^fe|^clr|^er|^volpk", name) ~ "Secondary / Excretion",
     grepl("^tss",       name) ~ "Steady-state",
     TRUE ~ "Other"
   )
@@ -48,7 +48,7 @@ category_colors <- c(
   "CL / Volume"            = "#e15759",
   "MRT"                    = "#76b7b2",
   "Cmax / Tmax"            = "#59a14f",
-  "Bioavailability / Renal"= "#edc948",
+  "Secondary / Excretion"  = "#edc948",
   "Steady-state"           = "#b07aa1",
   "Other"                  = "#aaaaaa"
 )
@@ -113,9 +113,9 @@ knitr::kable(dep_table, col.names = c("Parameter", "Depends on"))
 
 ## Parameter-to-function mapping
 
-Every interval parameter is computed by a function registered alongside it — usually named `pk.calc.*()` — and the registry entry returned by `get.interval.cols()` records that function name in its `$FUN` field, together with the parameter's unit type and description. Where `$FUN` is `NA`, the parameter has no dedicated function: it is either produced as part of another function's output (for example, `r.squared` and `lambda.z.time.first` are returned by the same half-life fit that produces `half.life`) or it is an interval boundary (`start`, `end`).
+Every interval parameter is computed by a function registered alongside it — usually named `pk.calc.*()` — and the registry entry returned by `get.interval.cols()` records that function name in its `$FUN` field, together with the parameter's unit type and description. Where `$FUN` is `NA`, the parameter has no dedicated dense function: it is produced as part of another function's output (for example, `r.squared` and `lambda.z.time.first` are returned by the same half-life fit that produces `half.life`, and `auclast_se` by the sparse estimator of `auclast`), it is calculated only by a sparse estimator in `$FUN_sparse`, or it is an interval boundary (`start`, `end`). Parameters with a sparse-specific estimator (≥ 0.13.0) record it in `$FUN_sparse`, shown in its own column below.
 
-The table below is the complete index of the calculation API: every registered parameter, the function that computes it, its unit type, and its description. To add your own parameter to this registry, see the [Writing Custom Parameters chapter](../user/custom-parameters.qmd) and the vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
+The table below is the complete index of the calculation API: every registered parameter, the functions that compute it, its unit type, and its description. To add your own parameter to this registry, see the [Writing Custom Parameters chapter](../user/custom-parameters.qmd) and the vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
 
 ```{r fun-map}
 cols <- get.interval.cols()
@@ -125,6 +125,7 @@ fun_map <- data.frame(
   # $FUN is a character function name, or logical NA when the parameter has no
   # dedicated function; as.character() coerces both to character
   fun       = vapply(cols, function(x) as.character(x$FUN), character(1)),
+  fun_sparse = vapply(cols, function(x) as.character(x$FUN_sparse), character(1)),
   unit_type = vapply(cols, function(x) x$unit_type, character(1)),
   desc      = vapply(cols, function(x) x$desc, character(1)),
   stringsAsFactors = FALSE
@@ -134,7 +135,7 @@ fun_map <- data.frame(
 knitr::kable(
   fun_map,
   row.names = FALSE,
-  col.names = c("Parameter", "Function", "Unit type", "Description")
+  col.names = c("Parameter", "Function", "Sparse function", "Unit type", "Description")
 )
 ```
 
@@ -170,6 +171,12 @@ all_deps |>
 
 ```{r parameter-deps}
 get.parameter.deps("auclast")
+```
+
+With `recursive = TRUE` (≥ 0.13.0) it goes the other way, following each dependency back to the raw inputs (`conc`, `time`, `dose`, ...) and the arguments of the calculation functions along the way:
+
+```{r parameter-deps-recursive}
+get.parameter.deps("cl.last", recursive = TRUE)
 ```
 
 

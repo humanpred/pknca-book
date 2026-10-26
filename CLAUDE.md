@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working in this repository.
 
 ## What This Is
 
-A Quarto book documenting the [PKNCA](https://github.com/humanpred/pknca) R package (≥ 0.12.2).
+A Quarto book documenting the [PKNCA](https://github.com/humanpred/pknca) R package (≥ 0.13.0).
 Every parameter, option, and user-facing function is covered with runnable examples verified against live PKNCA output; the `pk.calc.*` calculation functions are indexed in the Developer Reference.
 
 **Book repo:** https://github.com/humanpred/pknca-book  
@@ -20,8 +20,8 @@ quarto preview       # live preview with auto-reload
 
 ```r
 # Install dependencies (once)
-remotes::install_github("humanpred/pknca")  # >= 0.12.2 required
-install.packages(c("knitr", "rmarkdown", "dplyr", "ggplot2", "conflicted", "testthat", "visNetwork"))
+remotes::install_github("humanpred/pknca")  # >= 0.13.0 required
+install.packages(c("knitr", "rmarkdown", "dplyr", "ggplot2", "conflicted", "testthat", "visNetwork", "tidyr", "units", "lme4", "lmerTest", "emmeans"))
 ```
 
 ## Project Structure
@@ -29,7 +29,7 @@ install.packages(c("knitr", "rmarkdown", "dplyr", "ggplot2", "conflicted", "test
 ```
 _quarto.yml              # book config: title, author, chapters, site-url, navbar
 index.qmd                # introduction + What's new per version
-user/                    # 19 User Guide chapters
+user/                    # 25 User Guide chapters
 dev/                     # 2 Developer Reference chapters
 validate.R               # numeric self-check of key documented examples (Rscript validate.R; exits 1 on failure)
 .github/workflows/book.yml  # CI: runs validate.R, renders, deploys to GitHub Pages on push to main
@@ -39,7 +39,7 @@ _book/                   # rendered output (gitignored)
 ## Conventions
 
 - **Datasets:** `datasets::Theoph` (extravascular) and `datasets::Indometh` (intravascular)
-- **PKNCA version:** ≥ 0.12.2
+- **PKNCA version:** ≥ 0.13.0
 - **Code chunks:** `eval: true` — every chunk must run without error
 - **No `suppressWarnings()`** hiding real issues — fix root causes
 - **Each page is self-contained:** load packages at the top of every `.qmd`

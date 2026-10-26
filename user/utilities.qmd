@@ -60,7 +60,7 @@ clean.conc.na(conc_na, time_na, conc.na = 0)
 
 ## Concentration interpolation / extrapolation: `interp.extrap.conc()`
 
-Interpolates or extrapolates a concentration at a target time given a known concentration-time profile. Used internally when an interval boundary falls between two observed timepoints.
+Interpolates or extrapolates a concentration at a target time given a known concentration-time profile. The `aucint.*` parameters use it internally when an interval boundary falls between two observed timepoints and no dosing data are given; with dosing data they use the dose-aware `interp.extrap.conc.dose()` instead.
 
 ```{r}
 conc_ex <- c(10, 8, 5, 2.5, 1)
@@ -107,7 +107,7 @@ This is the same function called internally by `pk.nca()` when `half.life = TRUE
 
 ## Direct AUC computation: `pk.calc.auc.all()`
 
-Computes AUC (trapezoid rule) directly on a concentration-time vector. Returns the scalar AUC value.
+Computes AUC directly on a concentration-time vector with the chosen integration method. It returns the AUC with a `"method"` attribute (≥ 0.13.0) naming that method — the text that `pk.nca()` moves into the `PPANMETH` column of its results.
 
 ```{r}
 pk.calc.auc.all(
@@ -115,6 +115,13 @@ pk.calc.auc.all(
   time   = subj1$Time,
   method = "lin up/log down"
 )
+```
+
+The attribute carries through arithmetic, so wrap the result in `as.numeric()` before comparing it to a bare number (for example with `identical()` or `testthat::expect_equal()`):
+
+```{r}
+as.numeric(pk.calc.auc.all(conc = subj1$conc, time = subj1$Time,
+                           method = "lin up/log down"))
 ```
 
 Other direct AUC functions:
@@ -126,7 +133,7 @@ Other direct AUC functions:
 | `pk.calc.auc.inf.obs()` | AUC extrapolated to ∞ (observed Clast) |
 | `pk.calc.auc.inf.pred()` | AUC extrapolated to ∞ (predicted Clast) |
 
-These are the building blocks behind every AUC parameter in the registry. Integration methods are compared in [AUC integration methods](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
+These are the building blocks behind the AUC parameters in the registry; the interval forms (`pk.calc.aucint()` and relatives) are described in the [AUC chapter](auc-methods.qmd). Integration methods are compared in [AUC integration methods](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
 
 ---
 
@@ -151,10 +158,11 @@ param_cols[sapply(expanded[1, param_cols], isTRUE)]
 ```
 
 ```{r}
-# Invalid specification — missing start column — raises an error
+# Invalid specification — missing start column — raises an error;
+# the handler returns the error message
 tryCatch(
   check.interval.specification(data.frame(end = Inf, auclast = TRUE)),
-  error = function(e) cat("Error:", conditionMessage(e), "\n")
+  error = function(e) conditionMessage(e)
 )
 ```
 
@@ -205,13 +213,19 @@ This is useful when you want to test how route assumption changes affect MRT or 
 
 ## Getting parameter dependents: `get.parameter.deps()`
 
-Returns the downstream parameters that depend on a given parameter — the results that would be affected if it fails or is excluded.
+By default, returns the downstream parameters that depend on a given parameter — the results that would be affected if it fails or is excluded.
 
 ```{r}
 get.parameter.deps("half.life")
 ```
 
-For the opposite direction — the upstream inputs a parameter needs — read its registry entry:
+For the opposite direction, `recursive = TRUE` (≥ 0.13.0) returns what a parameter is calculated from, following each dependency back to the raw inputs (such as `conc`, `time`, and `dose`) and the arguments of the calculation functions along the way, including the options they read:
+
+```{r}
+get.parameter.deps("vss.obs", recursive = TRUE)
+```
+
+The registry entry lists only the direct dependencies:
 
 ```{r}
 get.interval.cols()[["vss.obs"]]$depends
@@ -225,6 +239,12 @@ get.interval.cols()[["vss.obs"]]$depends
 
 ```{r}
 PKNCA.options()
+```
+
+`PKNCA_options_defaults()` (≥ 0.13.0) returns the default value of one or more options (or all of them, with no argument) without changing the current settings — unlike `PKNCA.options(default = TRUE)`, which resets them:
+
+```{r}
+PKNCA_options_defaults(c("auc.method", "min.hl.points", "max.hl.points"))
 ```
 
 `PKNCA.options.describe()` returns the description of a single option; see the [Workflow Overview](workflow.qmd) page for the full option reference table, and the vignette [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
@@ -249,9 +269,66 @@ PKNCA.choose.option("min.hl.points", options = list())
 PKNCA.choose.option("min.hl.points", options = list(min.hl.points = 5))
 ```
 
+---
+
+## Routes of administration: `pknca_routes()` and `pknca_match_route()` (≥ 0.13.0)
+
+`pknca_routes()` lists the routes PKNCA distinguishes. With `synonyms = TRUE` it returns a table of the spellings data use for a route ("po", "intravenous bolus", CDISC `ROUTE` terms, ...), the route PKNCA uses for each, and the `PKNCAdose(route = )` value it implies; `pknca_match_route()` looks a character vector up in that table, giving `NA` for spellings it does not know. A spelling that does not say bolus or infusion maps to the generic `"iv"`.
+
+```{r}
+pknca_routes()
+head(pknca_routes(synonyms = TRUE))
+pknca_match_route(c("PO", "INTRAVENOUS BOLUS", "iv", "nasal spray"))
+```
+
+The `dose_route` column is ready to pass to the `route` argument of `PKNCAdose()`.
+
+---
+
+## Converting durations: `pknca_difftime_to_unit()` (≥ 0.13.0)
+
+Converts a `difftime` (such as a collection duration computed as the difference of two date-times) into a number in an analysis time unit — the conversion `pk.nca()` applies to date-time data. A value that is not a `difftime` is an error.
+
+```{r}
+pknca_difftime_to_unit(as.difftime(90, units = "mins"), "hr")
+```
+
+Date-time concentration and dose times are covered in the [date-time chapter](datetime.qmd).
+
+---
+
+## Checking inputs before building objects (≥ 0.13.0)
+
+Applications that assemble PKNCA objects from user data can run the same checks PKNCA runs, before calling the constructors:
+
+| Function | What it checks |
+|---|---|
+| `assert_conc_time()` | Concentrations and times are valid numbers and the times are sorted |
+| `assert_impute_method()` | An imputation specification resolves to known methods, the way `PKNCAdata()` and `pk.nca()` resolve it |
+| `PKNCA_impute_fun_list()` | The imputation function names an imputation string resolves to |
+| `assert_PKNCAconc()`, `assert_PKNCAdose()`, `assert_PKNCAresults()` | The object has the expected class |
+
+```{r}
+# Unsorted times are an error
+tryCatch(
+  assert_conc_time(conc = c(1, 2, 3), time = c(0, 2, 1)),
+  error = function(e) conditionMessage(e)
+)
+
+# An imputation chain resolves to one function name per method
+PKNCA_impute_fun_list(c("start_conc0", "start_predose,start_conc0"))
+
+# An unknown method is an error
+tryCatch(
+  assert_impute_method("start_bogus"),
+  error = function(e) conditionMessage(e)
+)
+```
+
+Imputation methods themselves are described in the [imputation chapter](imputation.qmd).
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [clean.conc.blq()](https://humanpred.github.io/pknca/reference/clean.conc.blq.html) · [clean.conc.na()](https://humanpred.github.io/pknca/reference/clean.conc.na.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [pk.calc.auc.all()](https://humanpred.github.io/pknca/reference/pk.calc.auxc.html) · [check.interval.specification()](https://humanpred.github.io/pknca/reference/check.interval.specification.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [setRoute()](https://humanpred.github.io/pknca/reference/setRoute.html) · [setDuration()](https://humanpred.github.io/pknca/reference/setDuration.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [PKNCA.options.describe()](https://humanpred.github.io/pknca/reference/PKNCA.options.describe.html) · [PKNCA.choose.option()](https://humanpred.github.io/pknca/reference/PKNCA.choose.option.html)
+**pkgdown reference:** [clean.conc.blq()](https://humanpred.github.io/pknca/reference/clean.conc.blq.html) · [clean.conc.na()](https://humanpred.github.io/pknca/reference/clean.conc.na.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [pk.calc.auc.all()](https://humanpred.github.io/pknca/reference/pk.calc.auxc.html) · [check.interval.specification()](https://humanpred.github.io/pknca/reference/check.interval.specification.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [setRoute()](https://humanpred.github.io/pknca/reference/setRoute.html) · [setDuration()](https://humanpred.github.io/pknca/reference/setDuration.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [PKNCA.options.describe()](https://humanpred.github.io/pknca/reference/PKNCA.options.describe.html) · [PKNCA.choose.option()](https://humanpred.github.io/pknca/reference/PKNCA.choose.option.html) · [PKNCA_options_defaults()](https://humanpred.github.io/pknca/reference/PKNCA_options_defaults.html) · [pknca_routes()](https://humanpred.github.io/pknca/reference/pknca_concepts.html) · [pknca_match_route()](https://humanpred.github.io/pknca/reference/pknca_match_route.html) · [pknca_difftime_to_unit()](https://humanpred.github.io/pknca/reference/pknca_difftime_to_unit.html) · [assert_conc_time()](https://humanpred.github.io/pknca/reference/assert_conc_time.html) · [assert_impute_method()](https://humanpred.github.io/pknca/reference/assert_impute_method.html) · [PKNCA_impute_fun_list()](https://humanpred.github.io/pknca/reference/PKNCA_impute_fun_list.html) · [assert_PKNCAconc()](https://humanpred.github.io/pknca/reference/assert_PKNCAdata.html)
 :::

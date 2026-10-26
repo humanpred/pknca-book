@@ -36,23 +36,42 @@ length(get.interval.cols())
 
 ```r
 add.interval.col(
-  name        = "my.param",         # column name used in intervals data frame
-  FUN         = "pk.calc.my.param", # character string: function name
-  values      = c(FALSE, TRUE),     # allowed values in intervals (FALSE = skip, TRUE = compute)
-  unit_type   = "time",             # units category (see below)
-  pretty_name = "My parameter",     # human-readable label
-  desc        = "What it does",     # one-line description
-  depends     = NULL,               # other parameters that must be computed first
-  sparse      = FALSE,              # TRUE if this is a sparse-PK parameter
-  formalsmap  = list(),             # list(<your function arg> = "<PKNCA data name>")
-  datatype    = "interval",         # "interval" (default), "individual", or "population"
-                                    #   (only "interval" is currently supported; the others error)
-  pptestcd_cdisc = "MYPARAM",       # CDISC PPTESTCD code for the parameter (≥ 0.12.2)
-  pptest_cdisc   = "My Parameter"   # CDISC PPTEST label for the parameter (≥ 0.12.2)
+  name           = "my.param",          # column name used in the intervals data frame
+  FUN            = "pk.calc.my.param",  # function name as a character string, or NA
+  values         = c(FALSE, TRUE),      # allowed values in intervals (FALSE = skip, TRUE = compute)
+  unit_type      = "time",              # units category (required; see below)
+  pretty_name    = "My parameter",      # human-readable label for summary tables
+  depends        = NULL,                # other parameters that must be computed first
+  desc           = "What it does",      # one-line description; SDTM limit 40 characters
+  formalsmap     = list(),              # list(<your function arg> = <data or parameter name>)
+  FUN_sparse     = NA,                  # sparse-PK estimator (function name), if any
+  formalsmap_sparse = list(),           # formalsmap for FUN_sparse
+  datatype       = "interval",          # only "interval" is supported; the others error
+  pptestcd_cdisc = "MYPARAM",           # CDISC PPTESTCD code (defaults to name)
+  pptest_cdisc   = "My Parameter",      # CDISC PPTEST label (defaults to desc)
+  formula        = NULL,                # LaTeX expression, for documentation
+  formula_note   = NULL,                # note on the formula; also the PPANMETH fallback
+  tier           = "uncommon",          # "common" or "uncommon"
+  selection      = NULL                 # list(concept=, route=, dosing=, secondary=)
 )
 ```
 
 **Key rule:** `FUN` must be a **character string** (the function name), not a function object.
+
+What each argument does, as of PKNCA 0.13.0:
+
+| Argument | Notes |
+|---|---|
+| `name` | A non-empty string. Names ending in `_ref` and the name `interval_id` are reserved for the reference-interval linkage columns (see [Example 4](#example-4-a-parameter-that-needs-another-interval)) and are an error. |
+| `FUN` | The calculation function's name, or `NA` for a parameter that is filled in as one column of another parameter's data-frame result, or that only a `FUN_sparse` estimator calculates. |
+| `unit_type` | Required; one of the values listed below. |
+| `desc` | Since 0.13.0, a description longer than 40 characters (the SDTM limit) is still registered but gives a warning. |
+| `formalsmap` | Maps your function's arguments to data, parameters, constants (`I()`), or reference-interval values (`pknca_ref()`); see [below](#the-formalsmap-argument). |
+| `FUN_sparse`, `formalsmap_sparse` (≥ 0.13.0) | A second calculation function used when the data are sparse; see [Example 5](#example-5-a-sparse-only-parameter). |
+| `pptestcd_cdisc`, `pptest_cdisc` (≥ 0.13.0) | The codes used by `as.data.frame(out_format = "cdisc")`. Each is a single string, a list with one element `route` holding a named list by route (`list(route = list(extravascular = "CLF/FO", intravascular = "CLO"))`), or a list of exactly the elements `dense` and `sparse`; anything else is an error. |
+| `formula`, `formula_note` (≥ 0.13.0) | Documentation of the calculation. When the calculation function sets no `"method"` attribute, `formula_note` is reported in the `PPANMETH` column. |
+| `tier`, `selection` (≥ 0.13.0) | Classification used by automatic interval selection and reported by `pknca_parameter_table()`. A custom parameter is `"uncommon"` by default, so it is calculated only when requested by name. |
+| `sparse` | Retired (≥ 0.13.0). `sparse = TRUE` is an error; an explicit `sparse = FALSE` is accepted and does nothing. Register a sparse-only parameter with `FUN = NA` and `FUN_sparse` instead. |
 
 ### Available `unit_type` values
 
@@ -64,27 +83,29 @@ add.interval.col(
 
 Each `formalsmap` entry has the form `<your function's argument> = "<PKNCA data name>"` — the **names** of the list must be your function's formal arguments, and the **values** are the PKNCA data or parameter names that supply them. For example, PKNCA registers `mrt.obs` with `formalsmap = list(auc = "aucinf.obs", aumc = "aumcinf.obs")`: the computed `aucinf.obs` value is passed to the function's `auc` argument.
 
-Standard PKNCA data names available as `formalsmap` values:
+Values available in a `formalsmap` (the full list is in `?add.interval.col`):
 
-| PKNCA name | What it provides |
+| `formalsmap` value | What it provides |
 |---|---|
-| `conc` | Concentration vector for the current interval |
-| `time` | Time vector for the current interval |
-| `dose` | Total dose in the current interval |
-| `start` | Interval start time |
-| `end` | Interval end time |
-| `half.life` | Computed half-life (if in `depends`) |
-| `auclast` | Computed AUClast (if in `depends`) |
-| `cmax` | Computed Cmax (if in `depends`) |
-| *(any parameter name)* | Any other registered parameter in `depends` |
+| `"conc"`, `"time"` | Concentrations and times for the current interval (times start at 0 at the interval start) |
+| `"dose"`, `"time.dose"`, `"duration.dose"`, `"route"` | Dose amounts, times, durations, and route for the current interval |
+| `"volume"`, `"duration.conc"` | Sample volume and collection duration (urine and feces) |
+| `"start"`, `"end"` | Interval start and end times (`end` may be `Inf`) |
+| `"options"` | The `PKNCA.options()` in effect for the calculation |
+| `"conc.group"`, `"time.group"`, `"dose.group"`, ... | The same inputs for the whole group rather than the interval |
+| `"conc.sparse"`, `"time.sparse"`, `"subject"`, ... (≥ 0.13.0) | The pooled individual samples of sparse data (`NULL` for dense data) |
+| *(any parameter name)* | The computed value of that parameter in the current interval (list it in `depends`) |
+| `I(<value>)` (≥ 0.13.0) | A constant, passed to the function unchanged |
+| `pknca_ref("<parameter>")` (≥ 0.13.0) | The value of that parameter in the reference interval |
+| `NULL` | Drop the argument from the call so that it keeps its default |
 
-If your function argument names **exactly match** PKNCA's standard names, `formalsmap` can be omitted or left empty.
+If your function argument names **exactly match** PKNCA's standard names, `formalsmap` can be omitted or left empty. An argument whose name matches a registered parameter is filled from that parameter when it is not in the `formalsmap`, so map such an argument to `NULL` if your parameter does not use it.
 
 ---
 
 ## Example 1: derived from other parameters
 
-A parameter that divides two already-computed parameters. Use `depends` to declare what must be computed first (shown here without `formalsmap` because the function's argument names match the parameter names).
+A parameter that divides two already-computed parameters. Use `depends` to declare what must be computed first (shown here without `formalsmap` because the function's argument names match the parameter names). Requesting `exposure.ratio` alone is enough: PKNCA calculates everything in `depends` first, and `get.parameter.deps("exposure.ratio", recursive = TRUE)` lists what it is ultimately calculated from.
 
 ```{r}
 # Exposure ratio: AUClast / Cmax  (units: time, since AUC/conc = time × conc/conc = time)
@@ -99,7 +120,8 @@ add.interval.col(
   unit_type   = "time",
   pretty_name = "Exposure ratio (AUClast / Cmax)",
   desc        = "AUClast divided by Cmax",
-  depends     = c("auclast", "cmax")
+  depends     = c("auclast", "cmax"),
+  formula     = "\\frac{AUC_{last}}{C_{max}}"
 )
 ```
 
@@ -121,25 +143,28 @@ as.data.frame(o_nca_er) |>
 
 ---
 
-## Example 2: computed from raw concentration-time data
+## Example 2: computed from raw concentration-time data, with a constant
 
-A parameter that accesses `conc` and `time` directly. PKNCA passes the raw vectors from the concentration data. No `depends` needed. The identity `formalsmap` below is shown for explicitness — because the argument names match PKNCA's standard names, it could equally be omitted.
+A parameter that accesses `conc` and `time` directly. PKNCA passes the raw vectors from the concentration data. No `depends` needed. The target time is passed as a constant with `I()` (≥ 0.13.0): without `I()`, `2` would be looked up as a data or parameter name instead of being passed as a value. The same function could be registered again as `c.4h` with `time.out = I(4)`.
 
 ```{r}
-# Concentration at exactly 2 hours (interpolated)
-pk.calc.c_at_2h <- function(conc, time) {
-  interp.extrap.conc(conc = conc, time = time, time.out = 2)
+# Concentration at a fixed time (interpolated)
+pk.calc.conc.at <- function(conc, time, time.out) {
+  interp.extrap.conc(conc = conc, time = time, time.out = time.out)
 }
 
 add.interval.col(
-  name        = "c.2h",
-  FUN         = "pk.calc.c_at_2h",
-  values      = c(FALSE, TRUE),
-  unit_type   = "conc",
-  pretty_name = "Concentration at 2 h",
-  desc        = "Interpolated concentration at t = 2 h",
-  depends     = NULL,
-  formalsmap  = list(conc = "conc", time = "time")
+  name           = "c.2h",
+  FUN            = "pk.calc.conc.at",
+  values         = c(FALSE, TRUE),
+  unit_type      = "conc",
+  pretty_name    = "Concentration at 2 h",
+  desc           = "Interpolated concentration at 2 h",
+  depends        = NULL,
+  formalsmap     = list(conc = "conc", time = "time", time.out = I(2)),
+  pptestcd_cdisc = "C2H",
+  pptest_cdisc   = "Concentration at 2 h",
+  formula_note   = "Interpolated with interp.extrap.conc()"
 )
 ```
 
@@ -150,8 +175,16 @@ o_nca_c2 <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = data.frame(
 
 as.data.frame(o_nca_c2) |>
   filter(PPTESTCD == "c.2h") |>
-  select(subject, PPORRES) |>
+  select(subject, PPORRES, PPANMETH) |>
   arrange(subject)
+```
+
+`pk.calc.conc.at()` sets no `"method"` attribute, so `PPANMETH` falls back to the registered `formula_note`. The CDISC codes appear in the CDISC output:
+
+```{r}
+as.data.frame(o_nca_c2, out_format = "cdisc") |>
+  filter(subject == "1") |>
+  select(subject, pknca_parameter, PPTESTCD, PPTEST, PPORRES)
 ```
 
 ---
@@ -207,13 +240,15 @@ add.interval.col(
   values      = c(FALSE, TRUE),
   unit_type   = "fraction",
   pretty_name = "Early AUC fraction",
-  desc        = "Fraction of AUClast occurring in first 4 h",
+  desc        = "Fraction of AUClast in the first 4 h",
   depends     = "auclast",
   formalsmap  = list(conc = "conc", time = "time", auclast = "auclast")
 )
 ```
 
-> **Note:** One function *can* populate several output parameters at once by returning a **one-row data frame** whose column names are registered parameter names — `pk.nca()` saves every column of the returned data frame. This is exactly how `pk.calc.half.life()` populates `half.life`, `lambda.z`, `r.squared`, and the other half-life diagnostics. Each output still needs its own `add.interval.col()` registration: register the function on the primary parameter, and register the other columns with `FUN = NA` plus a `depends` on the primary (`formalsmap` may not be given when `FUN = NA`). The one-function-per-parameter pattern shown above is the simpler option when each output is cheap to compute.
+These functions return values from `pk.calc.auc.last()`, which carry a `"method"` attribute ("AUC: lin up/log down" with the default `auc.method`); the attribute survives the subtraction and division, so `pk.nca()` reports it in the `PPANMETH` column of these custom parameters too. Return `as.numeric()` of a value if its method should not be reported.
+
+> **Note:** One function *can* populate several output parameters at once by returning a **one-row data frame** whose column names are registered parameter names — `pk.nca()` saves every column of the returned data frame. A data frame whose names and values do not pair up (for example, one with zero rows) is an error naming the function (≥ 0.13.0). This is exactly how `pk.calc.half.life()` populates `half.life`, `lambda.z`, `r.squared`, and the other half-life diagnostics. Each output still needs its own `add.interval.col()` registration: register the function on the primary parameter, and register the other columns with `FUN = NA` plus a `depends` on the primary (`formalsmap` may not be given when `FUN = NA`). The one-function-per-parameter pattern shown above is the simpler option when each output is cheap to compute.
 
 ```{r}
 o_nca_split <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = data.frame(
@@ -246,7 +281,7 @@ add.interval.col(
   values      = c(FALSE, TRUE),
   unit_type   = "auc",
   pretty_name = "AUC 0-4h (multi-output)",
-  desc        = "AUC from 0 to 4 h, from a multi-output function",
+  desc        = "AUC from 0 to 4 h (multi-output)",
   depends     = "auclast",
   formalsmap  = list(conc = "conc", time = "time", auclast = "auclast")
 )
@@ -257,7 +292,7 @@ add.interval.col(
   values      = c(FALSE, TRUE),
   unit_type   = "auc",
   pretty_name = "AUC 4h to last (multi-output)",
-  desc        = "AUC from 4 h to last sample, from a multi-output function",
+  desc        = "AUC from 4 h to last (multi-output)",
   depends     = "auc.early.df"
 )
 
@@ -272,6 +307,95 @@ as.data.frame(o_nca_multi) |>
   tidyr::pivot_wider(names_from = PPTESTCD, values_from = PPORRES) |>
   arrange(subject)
 ```
+
+---
+
+## Example 4: a parameter that needs another interval
+
+Some parameters compare two intervals — bioavailability, renal clearance, and the built-in `ratio.*` parameters. Wrapping a `formalsmap` value in `pknca_ref()` (≥ 0.13.0) takes that argument from the **reference** interval instead of the current one. The intervals then link the two rows: the reference row gets an `interval_id`, and the row calculating the parameter names it in a `<parameter>_ref` column. Here a custom parameter subtracts the reference interval's `aucint.last` from the current one's:
+
+```{r}
+pk.calc.aucint.change <- function(aucint.last, aucint_reference) {
+  aucint.last - aucint_reference
+}
+
+add.interval.col(
+  name        = "aucint.change",
+  FUN         = "pk.calc.aucint.change",
+  values      = c(FALSE, TRUE),
+  unit_type   = "auc",
+  pretty_name = "AUCint change from reference",
+  desc        = "AUCint,last minus reference AUCint,last",
+  depends     = "aucint.last",
+  formalsmap  = list(aucint_reference = pknca_ref("aucint.last"))
+)
+
+intervals_linked <- data.frame(
+  start               = c(0, 8),
+  end                 = c(8, 24),
+  interval_id         = c("first8h", NA),
+  aucint.last         = TRUE,
+  aucint.change       = c(FALSE, TRUE),
+  aucint.change_ref   = c(NA, "first8h")
+)
+
+o_nca_linked <- pk.nca(PKNCAdata(o_conc, o_dose, intervals = intervals_linked))
+
+as.data.frame(o_nca_linked) |>
+  filter(subject %in% c("1", "2")) |>
+  select(subject, start, end, PPTESTCD, PPORRES, PPANMETH) |>
+  arrange(subject, start)
+```
+
+A `pknca_ref()` in the `formalsmap` makes the parameter *secondary* (calculated after every interval, from the results), so its function may take only parameter values — every argument comes either from the reference interval through `pknca_ref()` or from a parameter of the current interval listed in `depends`. The secondary row's `PPANMETH` names the reference interval. Requesting, linking, and automatically deriving reference intervals are covered in the [secondary parameters chapter](secondary-parameters.qmd) and the [Secondary Parameters vignette](https://humanpred.github.io/pknca/articles/v09-secondary-parameters.html).
+
+---
+
+## Example 5: a sparse-only parameter
+
+A parameter registered with `FUN = NA` and a `FUN_sparse` (≥ 0.13.0) is calculated only for sparse data, from the pooled individual samples. `formalsmap_sparse` replaces `formalsmap` for that function and can name the sparse inputs, such as `subject`. (Before 0.13.0 this was `sparse = TRUE`, which is now an error.)
+
+```{r}
+pk.calc.n.subjects <- function(subject) {
+  length(unique(subject))
+}
+
+add.interval.col(
+  name              = "n.subjects",
+  FUN               = NA,
+  FUN_sparse        = "pk.calc.n.subjects",
+  values            = c(FALSE, TRUE),
+  unit_type         = "count",
+  pretty_name       = "Subjects contributing samples",
+  desc              = "Number of subjects with samples",
+  formalsmap_sparse = list(subject = "subject")
+)
+
+# Two samples from each of six animals
+d_sparse <- data.frame(
+  animal = rep(1:6, each = 2),
+  time   = c(0.5, 4, 2, 8, 12, 0.5, 24, 2, 4, 12, 8, 24),
+  conc   = c(2, 3, 4, 2.5, 3.6, 2, 1.5, 1, 0.9, 0.5, 0.6, 0.2)
+)
+o_conc_sparse <- PKNCAconc(d_sparse, conc ~ time | animal, sparse = TRUE)
+
+o_nca_sparse <- pk.nca(PKNCAdata(o_conc_sparse, intervals = data.frame(
+  start = 0, end = 24, n.subjects = TRUE
+)))
+as.data.frame(o_nca_sparse) |>
+  select(start, end, PPTESTCD, PPORRES)
+```
+
+Requesting `n.subjects` for dense data is an error, and `pknca_parameter_table()` reports the parameter as sparse:
+
+```{r}
+pknca_parameter_table(c("exposure.ratio", "c.2h", "aucint.change", "n.subjects")) |>
+  select(parameter, concept, tier, sparse, secondary)
+```
+
+A custom parameter whose concept cannot be derived (here `exposure.ratio`, `c.2h`, and `n.subjects`) has `NA` for `concept`: it is calculated normally when requested by name, but it is never selected automatically. Declare one with `selection = list(concept = ...)` (see `pknca_concepts()` for the vocabulary) or with `pknca_concept()` on the calculation function. `aucint.change` takes its concept from its dependency and is secondary because of its `pknca_ref()`.
+
+A parameter with both `FUN` and `FUN_sparse` uses `FUN_sparse` for sparse data and `FUN` for dense data; one with only `FUN` is calculated on the arithmetic-mean profile for sparse data. Sparse analyses are covered in the [sparse NCA chapter](sparse.qmd).
 
 ---
 
@@ -319,10 +443,11 @@ The vignette's [summary section](https://humanpred.github.io/pknca/articles/v80-
 - **`FUN` must be a character string.** Passing a function object causes an error.
 - **`depends` controls evaluation order.** List all parameters your function reads. PKNCA resolves the dependency graph and ensures they are computed before your function is called.
 - **Functions must be in scope** when `pk.nca()` runs. Define them in the global environment or in a package loaded before calling `pk.nca()`.
+- **Keep `desc` to 40 characters or fewer** if the results may go into an SDTM submission; longer descriptions warn.
 
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [pk.calc.auc.last()](https://humanpred.github.io/pknca/reference/pk.calc.auxc.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [geomean()](https://humanpred.github.io/pknca/reference/geomean.html) · [geocv()](https://humanpred.github.io/pknca/reference/geomean.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html) · [pknca_ref()](https://humanpred.github.io/pknca/reference/pknca_ref.html) · [pknca_parameter_table()](https://humanpred.github.io/pknca/reference/pknca_parameter_table.html) · [pknca_concepts()](https://humanpred.github.io/pknca/reference/pknca_concepts.html) · [pknca_concept()](https://humanpred.github.io/pknca/reference/pknca_concept.html) · [as.data.frame.PKNCAresults()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [interp.extrap.conc()](https://humanpred.github.io/pknca/reference/interp.extrap.conc.html) · [pk.calc.auc.last()](https://humanpred.github.io/pknca/reference/pk.calc.auxc.html) · [PKNCA.set.summary()](https://humanpred.github.io/pknca/reference/PKNCA.set.summary.html) · [geomean()](https://humanpred.github.io/pknca/reference/geomean.html) · [geocv()](https://humanpred.github.io/pknca/reference/geomean.html)
 :::

@@ -183,10 +183,34 @@ cat("PKNCA  (linear method): ", round(pknca_lin,       3), "\n")
 cat("Difference:             ", round(manual_auclast - pknca_lin, 6), "\n")
 ```
 
-To confirm the current method:
+To confirm the current global method:
 
 ```{r auc-method}
 PKNCA.options("auc.method")
+```
+
+### Recording how each value was calculated (≥ 0.13.0)
+
+Each result row also records its calculation method in the `PPANMETH` column, so a validation report can show which rule produced each value:
+
+```{r ppanmeth}
+as.data.frame(o_nca_lin) |>
+  filter(Subject == "1") |>
+  select(Subject, PPTESTCD, PPORRES, PPANMETH)
+```
+
+To document the options an analysis changed, compare the options stored on the analysis with the package defaults from `PKNCA_options_defaults()`, which (unlike `PKNCA.options(default = TRUE)`) does not reset anything:
+
+```{r options-changed}
+o_data_lin <- PKNCAdata(d_conc, d_dose,
+  intervals = data.frame(start = 0, end = Inf, auclast = TRUE),
+  options   = list(auc.method = "linear"))
+analysis_options <- o_data_lin$options
+default_options <- PKNCA_options_defaults()
+changed <- names(analysis_options)[
+  !mapply(identical, analysis_options, default_options[names(analysis_options)])
+]
+analysis_options[changed]
 ```
 
 ---
@@ -218,11 +242,11 @@ renv::restore()
 renv::status()
 ```
 
-Together, `packageVersion("PKNCA")`, `PKNCA.options()`, `sessionInfo()`, and `renv::snapshot()` provide a complete and reproducible record of the computational environment used in an NCA analysis.
+Together, `packageVersion("PKNCA")`, `PKNCA.options()` (with any per-analysis changes, as above), the `PPANMETH` column, `sessionInfo()`, and `renv::snapshot()` provide a complete and reproducible record of the computational environment used in an NCA analysis.
 
 
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [PKNCA_options_defaults()](https://humanpred.github.io/pknca/reference/PKNCA_options_defaults.html)
 :::

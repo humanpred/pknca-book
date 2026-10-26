@@ -19,33 +19,61 @@ classDiagram
         formula: conc~time|groups
         subject: column name
         sparse: logical
-        units: concu/timeu
-        exclude / exclude_half.life
+        units: concu/amountu/timeu
+        exclude / exclude_half.life / include_half.life
+        lloq, time.nominal
+        volume, duration (only if given)
     }
     class PKNCAdose {
         data: data.frame
         formula: dose~time|groups
         route: intravas./extravas.
         duration / rate
-        units: doseu/timeu
+        units: doseu
+        time.nominal
     }
     class PKNCAdata {
         conc: PKNCAconc
         dose: PKNCAdose
         intervals: data.frame
-        impute: method string
+        impute: method string or column
         units: pknca_units_table()
         options: named list
+        group_ref, grpid_cols
     }
     class PKNCAresults {
-        result: data.frame
+        result: data.frame incl. PPANMETH
         data: PKNCAdata
+        exclude: column name
     }
 
     PKNCAconc --> PKNCAdata
     PKNCAdose --> PKNCAdata
     PKNCAdata --> PKNCAresults
 ```
+
+## How a calculation runs
+
+`PKNCAdata()` assembles the inputs and `pk.nca()` does the work. At a high level (function names are from `R/class-PKNCAdata.R` and `R/pk.calc.all.R`):
+
+```{mermaid}
+flowchart TD
+    A["PKNCAdata()"] --> A1["Intervals: given, or generated per group by<br/>choose.auc.intervals() (auto.interval.method)"]
+    A1 --> A2["set_intervals() / check.interval.specification()<br/>validate the intervals"]
+    A2 --> A3["Units table: given, or pknca_units_table()"]
+    A3 --> B["pk.nca()"]
+    B --> B1["assert_intervals(); convert date-time<br/>times and intervals to numbers"]
+    B1 --> B2["Overlay the object's options on a<br/>copy of PKNCA.options()"]
+    B2 --> B3["Expand reference intervals for<br/>secondary parameters"]
+    B3 --> B4["full_join_PKNCAdata(): split concentration,<br/>dose, and interval data by group"]
+    B4 --> C["pk.nca.intervals(): one call per group"]
+    C --> D["pk.nca.interval(): one call per interval;<br/>dense and sparse parameters in one pass"]
+    D --> E["Gather results (dense, then sparse)"]
+    E --> F["pk_nca_secondary(): parameters that<br/>read a reference interval"]
+    F --> G["PKNCAresults()"]
+```
+
+Inside `pk.nca.interval()`, the requested parameters are expanded with their `depends`, put in dependency order, and calculated one at a time. For each parameter, the arguments of its calculation function are filled from the interval data, earlier results, constants, or the options (see [formalsmap](#formalsmap)); points named by `include_half.life`/`exclude_half.life` are applied before `half.life` is calculated; and the result's `exclude` and `"method"` attributes become the `exclude` and `PPANMETH` columns. A function that returns a data frame contributes one result row per column. The calculation functions themselves never see a `PKNCAdata` object, so they can be called directly (see [Utility Functions](../user/utilities.qmd)).
 
 ## The interval column system
 
@@ -61,28 +89,37 @@ Each entry contains:
 
 | Field | Purpose |
 |---|---|
-| `FUN` | Name of the function that computes this parameter (character string, or `NA` for parameters populated by another function's multi-column result) |
+| `FUN` | Name of the function that computes this parameter (character string, or `NA` for parameters populated by another function's multi-column result or calculated only by `FUN_sparse`) |
+| `FUN_sparse` | Name of a sparse-PK estimator, or `NA` (≥ 0.13.0) |
 | `values` | Allowed values in the interval column (typically `c(FALSE, TRUE)`) |
 | `unit_type` | Unit category used for unit assignment and conversion |
 | `pretty_name` | Human-readable name used in summary tables |
+| `desc` | Human-readable description (40 characters or fewer for SDTM; longer warns) |
+| `formalsmap` | Maps function arguments to interval/group/options data, other parameters, constants, or reference-interval values |
+| `formalsmap_sparse` | The `formalsmap` for `FUN_sparse` (≥ 0.13.0) |
 | `depends` | Character vector of parameters that must be computed first |
-| `desc` | Human-readable description |
-| `sparse` | Whether this parameter works for sparse PK |
-| `formalsmap` | Maps function arguments to interval/group/options data |
 | `datatype` | Calculation type; only `"interval"` is currently supported |
-| `pptestcd_cdisc` | CDISC PPTESTCD code (≥ 0.12.2) |
-| `pptest_cdisc` | CDISC PPTEST label (≥ 0.12.2) |
+| `pptestcd_cdisc` | CDISC PPTESTCD code: a string, a route-keyed list, or a dense/sparse list (≥ 0.13.0) |
+| `pptest_cdisc` | CDISC PPTEST label, in the same forms (≥ 0.13.0) |
+| `formula`, `formula_note` | LaTeX formula and note for documentation; `formula_note` is the `PPANMETH` fallback (≥ 0.13.0) |
+| `tier`, `selection` | Classification for automatic interval selection (≥ 0.13.0) |
+
+The registry has no `sparse` field (≥ 0.13.0): `add.interval.col(sparse = TRUE)` is retired and is an error. Whether a parameter needs sparse data is derived from the registration (a `FUN_sparse` and no `FUN`) and reported by `pknca_parameter_table()`, together with each parameter's concept, tier, and route and dosing contexts. After `pk.nca()` first uses an entry, it can also carry internal cached fields (`requires_*` and `arg_spec`) that are not part of the registration.
 
 ## formalsmap
 
-`formalsmap` is how PKNCA passes the right data to each parameter function. Arguments can be sourced from four places:
+`formalsmap` is how PKNCA passes the right data to each parameter function. Arguments can be sourced from these places:
 
 | Source type | Example | What it provides |
 |---|---|---|
-| Interval column | `conc`, `time` | Concentrations/times for the current interval |
-| Other parameters | `auclast = "auclast"` | A previously computed NCA result |
+| Interval data | `conc`, `time`, `dose`, `time.dose`, `route` | Data for the current interval (times relative to the interval start) |
+| Group data | `conc.group`, `time.group` | Data for the whole group |
+| Sparse data (≥ 0.13.0) | `conc.sparse`, `time.sparse`, `subject` | The pooled individual samples (`NULL` for dense data) |
+| Other parameters | `auc = "auclast"` | A previously computed NCA result |
 | Interval bounds | `start`, `end` | The interval start/end times |
 | Options | `options` | The full analysis options list |
+| Constants (≥ 0.13.0) | `auc.type = I("AUCall")` | The value itself |
+| Reference interval (≥ 0.13.0) | `auc = pknca_ref("auclast")` | A parameter's value in the reference interval; makes the parameter secondary |
 
 Individual option names (e.g. `auc.method`) cannot be mapped through `formalsmap`; only the whole `options` list can, and parameter functions read specific settings from it via `PKNCA.choose.option()`.
 
@@ -109,7 +146,7 @@ add.interval.col(
 str(get.interval.cols()[["demo.ratio"]])
 ```
 
-For the full walkthrough — parameters computed from raw concentration-time data, multi-output functions, and custom summary statistics — see the [Writing Custom Parameters chapter](../user/custom-parameters.qmd) and the package vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
+For the full walkthrough — parameters computed from raw concentration-time data, constants, multi-output functions, parameters that read a reference interval, sparse-only parameters, and custom summary statistics — see the [Writing Custom Parameters chapter](../user/custom-parameters.qmd) and the package vignette [Writing PKNCA Parameter Functions](https://humanpred.github.io/pknca/articles/v80-writing-parameter-functions.html).
 
 ## Options system
 
@@ -132,18 +169,31 @@ PKNCA.options(min.hl.points = old_val)
 PKNCA.options("min.hl.points")
 ```
 
-> Prefer passing `options = list(...)` to `PKNCAdata()` over mutating global options. Global changes persist across analyses in the same session.
+> Prefer passing `options = list(...)` to `PKNCAdata()` over mutating global options. Global changes persist across analyses in the same session. At the start of each run, `pk.nca()` overlays the object's options on a copy of the global options and uses that copy for the calculations; the global options themselves are not modified. `PKNCA_options_defaults()` (≥ 0.13.0) returns the package defaults without resetting anything.
 
 ## Sparse PK
 
-Sparse PK (one or two samples per subject, common in preclinical or pediatric studies) is handled via a parallel code path:
+Sparse PK (one or two samples per subject, common in preclinical or pediatric studies) shares the dense code path (≥ 0.13.0):
 
-- Set `sparse = TRUE` in `PKNCAconc()`
-- Concentrations are pooled across subjects per timepoint
-- Mean concentration-time profile is computed, then NCA is run on that profile
-- Supported parameters are flagged with `sparse = TRUE` in their `add.interval.col()` registration
+- Set `sparse = TRUE` in `PKNCAconc()`.
+- Each group reaches `pk.nca.interval()` with two representations of the same samples: the arithmetic-mean profile (as `conc`/`time`) and the pooled individual samples (as `conc.sparse`/`time.sparse`, with `subject`). Dense and sparse parameters are calculated in one pass.
+- A parameter with a `FUN_sparse` (such as `auclast`, whose sparse estimator also returns `auclast_se` and `auclast_df`) is calculated from the pooled samples; one without falls back to `FUN` on the mean profile (half-life, for example). A parameter with `FUN = NA` and a `FUN_sparse` is sparse-only, and requesting it for dense data is an error.
+- `pknca_parameter_table()$sparse` reports which parameters need sparse data.
 
 For the full workflow, see the [Sparse NCA chapter](../user/sparse.qmd) and the vignette [Sparse NCA Calculations](https://humanpred.github.io/pknca/articles/v04-sparse.html).
+
+## Conditions and messages
+
+Errors, warnings, and messages are signaled with `rlang` and carry classes named `pknca_error_*`, `pknca_warning_*`, and `pknca_message_*` (≥ 0.13.0), so code can catch them by class rather than by message text. Several older classes were renamed in 0.13.0 (for example, `pknca_conc_none` is now `pknca_warning_no_concentration`). Input validation uses `checkmate`. With `verbose = TRUE`, `pk.nca()` reports one "Starting PK NCA calculations." message (`pknca_message_pk_start`).
+
+```{r}
+# Catch a PKNCA error by its class
+tryCatch(
+  add.interval.col(name = "x_ref", FUN = "pk.calc.cmax", unit_type = "conc",
+                   pretty_name = "x", desc = "Reserved name"),
+  pknca_error_param_name_reserved = function(e) class(e)[1]
+)
+```
 
 ## Key functions
 
@@ -152,11 +202,14 @@ All of these are exported except where marked internal:
 | Function | Purpose |
 |---|---|
 | `get.interval.cols()` | Return full parameter registry |
+| `pknca_parameter_table()` | Classification of every parameter (concept, tier, sparse, secondary, contexts) |
+| `get.parameter.deps()` | Parameters calculated from a parameter, or with `recursive = TRUE` what it is calculated from |
 | `PKNCA:::sort_interval_cols()` | Topological sort → execution order (internal, unexported) |
-| `pk.nca.interval()` | Compute all parameters for one interval/group |
+| `assert_intervals()` | Validate an interval specification against a `PKNCAdata` object |
+| `pk.nca.interval()` | Compute all parameters for one interval/group; takes `conc.sparse`, `time.sparse`, `conc.sparse.group`, and `time.sparse.group` for sparse data (its `sparse` argument was removed in 0.13.0) |
 | `pknca_units_table()` | Build unit assignment/conversion table |
-| `PKNCA_impute_method_*()` | Built-in imputation methods |
-| `pk.calc.auc.last()` | Core AUC calculation (trapezoidal) |
+| `PKNCA_impute_method_*()` | Built-in imputation methods (listed by `pknca_impute_methods()`) |
+| `pk.calc.auc.last()` | Core AUC calculation; returns a `"method"` attribute |
 | `pk.calc.half.life()` | λz regression with best-fit selection |
 
 ---
@@ -167,5 +220,5 @@ All of these are exported except where marked internal:
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [pk.nca.interval()](https://humanpred.github.io/pknca/reference/pk.nca.interval.html) · [PKNCA.choose.option()](https://humanpred.github.io/pknca/reference/PKNCA.choose.option.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [add.interval.col()](https://humanpred.github.io/pknca/reference/add.interval.col.html) · [get.interval.cols()](https://humanpred.github.io/pknca/reference/get.interval.cols.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [pknca_units_table()](https://humanpred.github.io/pknca/reference/pknca_units_table.html) · [pk.nca.interval()](https://humanpred.github.io/pknca/reference/pk.nca.interval.html) · [PKNCA.choose.option()](https://humanpred.github.io/pknca/reference/PKNCA.choose.option.html) · [pk.calc.half.life()](https://humanpred.github.io/pknca/reference/pk.calc.half.life.html) · [pknca_parameter_table()](https://humanpred.github.io/pknca/reference/pknca_parameter_table.html) · [get.parameter.deps()](https://humanpred.github.io/pknca/reference/get.parameter.deps.html) · [assert_intervals()](https://humanpred.github.io/pknca/reference/assert_intervals.html) · [choose.auc.intervals()](https://humanpred.github.io/pknca/reference/choose.auc.intervals.html) · [check.interval.specification()](https://humanpred.github.io/pknca/reference/check.interval.specification.html) · [PKNCA_options_defaults()](https://humanpred.github.io/pknca/reference/PKNCA_options_defaults.html) · [pknca_impute_methods()](https://humanpred.github.io/pknca/reference/pknca_impute_methods.html)
 :::

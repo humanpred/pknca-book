@@ -76,17 +76,24 @@ print(o_dose)
 
 ### Step 4 — PKNCAdata
 
-`PKNCAdata` combines concentration and dose objects. If you don't specify `intervals`, PKNCA builds defaults: for single-dose data, from the built-in `single.dose.aucs` specification anchored at the dosing times; multiple-dose data get tau-based intervals instead.
+`PKNCAdata` combines concentration and dose objects. If you don't specify `intervals`, PKNCA generates them from the dose times. It finds each group's dosing regimen and, for each interval it places, asks `pknca_interval_table()` for the parameters and the imputation that suit that interval's context (≥ 0.13.0). A single dose, as here, gets one interval from the dose to infinity that requests `auclast`, `cmax`, `tmax`, `tlag`, `count_conc`, `half.life`, `aucinf.obs`, `aucpext.obs`, and `cl.obs`. Its `impute` column holds `start_predose_conc0`: a concentration measured at the dose time is kept, a predose concentration is carried forward to the dose time when there is none, and 0 is imputed when there is neither (see the [Concentration Imputation chapter](imputation.qmd)). Multiple-dose data get one row per sampled dosing interval instead (typically the first one and the last one), built on the `aucint.*` family with `start_cmin` or `start_predose` imputation; [Automatic Intervals and Dosing Regimens](auto-intervals.qmd) explains how the regimen is detected and which intervals each design gets.
 
 ```{r}
 o_data <- PKNCAdata(o_conc, o_dose)
 ```
 
-You can inspect the auto-generated intervals:
+You can inspect the auto-generated intervals. The interval table has one logical column per known parameter, so this keeps only the columns that request something:
 
 ```{r}
-o_data$intervals |> head()
+o_data$intervals |>
+  select(where(~ !is.logical(.x) || any(.x))) |>
+  head(3)
 ```
+
+::: {.callout-note}
+## Changed in 0.13.0
+Before 0.13.0, a single dose got the intervals in the `single.dose.aucs` option instead: `auclast` over 0 to 24 (which assumed hours) plus `cmax`, `tmax`, `half.life`, and `aucinf.obs` over 0 to infinity, with no imputation. Because the single-dose interval now imputes a concentration at the dose time, results change when no sample was taken at the dose time: AUCs that need a concentration there are now calculated from the imputed one, where the legacy intervals give `NA` with an exclusion reason (see the [Concentration Imputation chapter](imputation.qmd)). `PKNCA.options(auto.interval.method = "legacy")` (or `options = list(auto.interval.method = "legacy")` in `PKNCAdata()`) restores the previous parameter lists. The [Interval Selection chapter](intervals.qmd) shows how to build the same tables yourself with `pknca_interval_table()`.
+:::
 
 ### Step 5 — pk.nca
 
@@ -112,7 +119,7 @@ summary(o_nca)
 
 ## Specifying intervals manually
 
-Auto-interval detection works for simple designs. For complex studies (multiple doses, custom windows), define intervals yourself.
+Automatic intervals cover the common designs. When you need other windows or parameters, define intervals yourself, either as a data frame as below or with the helpers `pknca_interval_table()` and `interval_add_param()` described in the [Interval Selection chapter](intervals.qmd).
 
 An **interval** is a row in a data frame with:
 
@@ -140,10 +147,18 @@ as.data.frame(o_nca2)
 
 ## Controlling calculations with PKNCA.options()
 
-`PKNCA.options()` is the global settings registry. Call with no arguments to see all current settings. See also the vignette [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
+`PKNCA.options()` is the global settings registry. Call it with no arguments to get a named list of all current settings. See also the vignette [Options for Controlling PKNCA](https://humanpred.github.io/pknca/articles/v40-options-for-controlling-PKNCA.html).
 
 ```{r}
-PKNCA.options()
+current_options <- PKNCA.options()
+names(current_options)
+```
+
+PKNCA `r packageVersion("PKNCA")` has `r length(PKNCA.options())` options. (Printing `PKNCA.options()` itself shows every value, including `single.dose.aucs`, which is a full interval data frame with one column per parameter.) Two helpers read the registry without changing it (≥ 0.13.0 for `PKNCA_options_defaults()`): `PKNCA_options_defaults()` gives the default of one option or all of them, which is useful after the current values have been changed, and `PKNCA.options.describe()` gives the package's own description of an option.
+
+```{r}
+PKNCA_options_defaults("auto.interval.tolerance")
+PKNCA.options.describe("auto.interval.tolerance")
 ```
 
 All options and what they control:
@@ -152,7 +167,7 @@ All options and what they control:
 
 | Option | Default | Effect |
 |---|---|---|
-| `auc.method` | `"lin up/log down"` | Integration rule: `"linear"`, `"lin-log"`, or `"lin up/log down"` |
+| `auc.method` | `"lin up/log down"` | Integration rule: `"lin up/log down"`, `"linear"`, or `"lin-log"` |
 
 Each rule is derived in [AUC integration methods](https://humanpred.github.io/pknca/articles/v23-auc-integration-methods.html).
 
@@ -161,21 +176,30 @@ Each rule is derived in [AUC integration methods](https://humanpred.github.io/pk
 | Option | Default | Effect |
 |---|---|---|
 | `min.hl.points` | `3` | Minimum data points for a valid λz regression |
+| `max.hl.points` | `Inf` | Maximum number of points that automatic point selection may use; must be more than `min.hl.points` (≥ 0.13.0) |
+| `min.hl.start.time` | `0` | Earliest time at which automatic point selection may start the λz regression; `0` does not restrict it (≥ 0.13.0) |
+| `adj.r.squared.factor` | `0.0001` | Selection tolerance: the regression with the most points whose adjusted R² is within this value of the best adjusted R² is chosen (favors more points when fits are nearly equal) |
+| `r.squared.factor` | `NA` | The same tolerance on the unadjusted R² instead (≥ 0.13.0). Setting either factor takes the other out of use, so exactly one is in use; `NA` means "select on the other one" |
 | `min.hl.r.squared` | `0.9` | Minimum unadjusted R² for λz acceptance (post-hoc exclusion via `exclude_nca_min.hl.r.squared()`) |
-| `adj.r.squared.factor` | `0.0001` | Selection tolerance: the longest regression window whose adj.R² is within this value of the best adj.R² is chosen (favors more points when fits are nearly equal) |
 | `min.span.ratio` | `2` | Minimum ratio of time span to half-life (post-hoc exclusion via `exclude_nca_span.ratio()`) |
-| `allow.tmax.in.half.life` | `FALSE` | Allow Tmax timepoint in λz regression |
-| `hl_method` | `"log-linear"` | `"log-linear"` (OLS) or `"tobit"` (censored-likelihood, ≥ 0.12.2) |
-| `tobit_n_points_penalty` | `0` | Exponent in the Tobit window-selection criterion (residual × n^penalty); positive values favor shorter windows (≥ 0.12.2) |
-| `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for Tobit optimization (≥ 0.12.2) |
+| `allow.tmax.in.half.life` | `FALSE` | Allow the Tmax timepoint in the λz regression |
+| `hl_method` | `"log-linear"` | `"log-linear"` (OLS) or `"tobit"` (censored likelihood) (≥ 0.13.0) |
+| `tobit_n_points_penalty` | `0` | Exponent in the Tobit window-selection criterion (residual × n^penalty); positive values favor shorter windows (≥ 0.13.0) |
+| `tobit_optim_control` | `list()` | Control list forwarded to `stats::optim()` for Tobit optimization (≥ 0.13.0) |
 
-Details: [Half-Life Calculation](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html) and [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html).
+Details: the [Half-Life chapter](halflife.qmd), [Half-Life Calculation](https://humanpred.github.io/pknca/articles/v06-half-life-calculation.html), and [Half-life calculation with Tobit regression](https://humanpred.github.io/pknca/articles/v06-half-life-calculation-tobit.html).
 
 **AUCinf extrapolation**
 
 | Option | Default | Effect |
 |---|---|---|
-| `max.aucinf.pext` | `20` | Flag results where extrapolated % of AUCinf exceeds this threshold |
+| `max.aucinf.pext` | `20` | Maximum percent of AUCinf that may be extrapolated for AUCinf to be considered valid (post-hoc exclusion via `exclude_nca_max.aucinf.pext()`) |
+
+**Sparse sampling**
+
+| Option | Default | Effect |
+|---|---|---|
+| `sparse_lambda_z_se` | `"delta"` | How the standard error of a sparse `aucinf.obs` or `aumcinf.obs` accounts for the estimated λz: `"delta"` adds its uncertainty with the delta method; `"none"` treats λz as known (≥ 0.13.0). See the [Sparse Sampling chapter](sparse.qmd) |
 
 **Concentration handling**
 
@@ -189,21 +213,30 @@ Details: [Half-Life Calculation](https://humanpred.github.io/pknca/articles/v06-
 | Option | Default | Effect |
 |---|---|---|
 | `first.tmax` | `TRUE` | `TRUE` = return first Tmax when tied; `FALSE` = return last |
-| `first.tmin` | `TRUE` | `TRUE` = return first Tmin when tied; `FALSE` = return last (≥ 0.12.2) |
+| `first.tmin` | `TRUE` | `TRUE` = return first Tmin when tied; `FALSE` = return last (≥ 0.13.0) |
 
-**Summary / output**
+**Automatic intervals**
+
+| Option | Default | Effect |
+|---|---|---|
+| `auto.interval.method` | `"builder"` | Where the parameters of automatically generated intervals come from: `"builder"` asks `pknca_interval_table()` for the parameters and imputation that suit each interval; `"legacy"` uses the pre-0.13.0 lists (`single.dose.aucs` for a single dose; AUClast, Cmax, and Tmax for each dosing interval) (≥ 0.13.0) |
+| `auto.interval.tolerance` | `0.05` | How far before an interval boundary a sample may be drawn and still count as the sample at that boundary, as a fraction of the interval length (a trough at 167.5 h still ends an interval nominally ending at 168 h) (≥ 0.13.0) |
+| `single.dose.aucs` | (data frame) | Intervals for single-dose data, used only with `auto.interval.method = "legacy"` |
+| `tau.choices` | `NA` | Nominal dosing intervals (τ) that detected dosing intervals are matched to. `NA` uses the built-in set from every 4 hours to every 12 weeks (Q4H, QID, TID, BID, QD, ..., Q12W); a numeric vector replaces it. An interval that matches none is reported as found in the dose times, with a `pknca_warning_tau_not_nominal` warning |
+
+The [Automatic Intervals and Dosing Regimens chapter](auto-intervals.qmd) shows these options at work.
+
+**Summary / output / other**
 
 | Option | Default | Effect |
 |---|---|---|
 | `max.missing` | `0.5` | Maximum fraction of missing values allowed before suppressing a summary statistic |
 | `keep_interval_cols` | `NULL` | Additional columns from the intervals data frame to carry through to results |
 | `allow_partial_missing_units` | `FALSE` | Allow some parameters to lack unit definitions when a units table is provided |
-| `single.dose.aucs` | (data frame) | Default interval specifications used when no intervals are provided for a single dose |
-| `tau.choices` | `NA` | Candidate dosing intervals (τ) for auto-detection in multiple-dose designs |
-| `progress` | `TRUE` | Show progress bar during `pk.nca()` |
+| `progress` | `TRUE` | Show a progress bar during `pk.nca()` |
 | `debug` | `NULL` | Enable internal debug output (not for routine use) |
 
-Override for a single analysis by passing `options` to `PKNCAdata()`. PKNCA has no `update()` method, so to rerun with different settings you build a new `PKNCAdata` object with the new `options` and call `pk.nca()` again:
+Override for a single analysis by passing `options` to `PKNCAdata()`. To rerun with different settings, build a new `PKNCAdata` object with the new `options` and call `pk.nca()` again:
 
 ```{r}
 o_data_strict <- PKNCAdata(
@@ -214,6 +247,8 @@ o_data_strict <- PKNCAdata(
   )
 )
 ```
+
+`update()` has a method for `PKNCAresults` objects only (there is none for `PKNCAconc`, `PKNCAdose`, or `PKNCAdata`). `update(o_nca, data = o_data_new)` is meant for the case where only the concentration or dose data change, such as an interactive app that excludes a point: it recalculates the groups whose data changed and keeps the other results. Any other difference between the old and new `PKNCAdata` objects, including different `options`, makes it recalculate everything with a `pknca_warning_full_recalculation` warning, so for a change of settings, calling `pk.nca()` on the new object directly is the clearer choice.
 
 ---
 
@@ -237,5 +272,5 @@ ggplot(auclast_df, aes(x = Subject, y = PPORRES)) +
 ---
 
 ::: {.callout-note icon=false appearance="minimal"}
-**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [exclude_nca_min.hl.r.squared()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
+**pkgdown reference:** [PKNCAconc()](https://humanpred.github.io/pknca/reference/PKNCAconc.html) · [PKNCAdose()](https://humanpred.github.io/pknca/reference/PKNCAdose.html) · [PKNCAdata()](https://humanpred.github.io/pknca/reference/PKNCAdata.html) · [pk.nca()](https://humanpred.github.io/pknca/reference/pk.nca.html) · [as.data.frame()](https://humanpred.github.io/pknca/reference/as.data.frame.PKNCAresults.html) · [summary()](https://humanpred.github.io/pknca/reference/summary.PKNCAresults.html) · [PKNCA.options()](https://humanpred.github.io/pknca/reference/PKNCA.options.html) · [PKNCA_options_defaults()](https://humanpred.github.io/pknca/reference/PKNCA_options_defaults.html) · [PKNCA.options.describe()](https://humanpred.github.io/pknca/reference/PKNCA.options.describe.html) · [pknca_interval_table()](https://humanpred.github.io/pknca/reference/pknca_interval_table.html) · [update()](https://humanpred.github.io/pknca/reference/update.PKNCAresults.html) · [exclude_nca_min.hl.r.squared()](https://humanpred.github.io/pknca/reference/exclude_nca.html)
 :::

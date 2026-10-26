@@ -184,9 +184,9 @@ then a 16 h overnight gap).
 
 ---
 
-## Extracting accumulation ratio
+## Predicted accumulation ratio
 
-One common definition of the **accumulation ratio (Rac)** is Cmax at steady state divided by Cmax after the first dose (an AUC-based Rac, AUCτ,ss / AUCτ,first, is equally common):
+One common definition of the **accumulation ratio (Rac)** is Cmax at steady state divided by Cmax after the first dose (an AUC-based Rac, AUCτ,ss / AUCτ,first, is equally common). With superposition, the steady-state Cmax is a prediction, so Rac is computed by hand from the predicted profile:
 
 ```{r}
 cmax_sd <- max(subj1$conc, na.rm = TRUE)
@@ -196,6 +196,8 @@ cat("Accumulation ratio (Rac):", round(rac, 2), "\n")
 cat("Single-dose Cmax:", round(cmax_sd, 2), "mg/L\n")
 cat("Steady-state Cmax:", round(cmax_ss, 2), "mg/L\n")
 ```
+
+When both the first-dose and the steady-state profiles were *observed*, PKNCA calculates the accumulation ratio itself with the `ratio.cmax`, `ratio.auclast`, or `ratio.aucint.last` secondary parameters (≥ 0.13.0); see [Secondary Parameters](secondary-parameters.qmd#ratios).
 
 ---
 
@@ -211,9 +213,19 @@ cat("Steady-state Cmax:", round(cmax_ss, 2), "mg/L\n")
 | `steady.state.tol` | No (default 0.001) | Convergence tolerance for `n.tau = Inf` |
 | `check.blq` | No (default `TRUE`) | Require first concentration = 0; set `FALSE` if first sample is non-zero |
 | `auc.type` | No (default `"AUCinf"`) | How to extrapolate the single-dose tail: `"AUCinf"`, `"AUClast"`, or `"AUCall"` |
+| `method` | No (default the `auc.method` option) | Interpolation method: `"lin up/log down"`, `"linear"`, or `"lin-log"` |
+| `lambda.z`, `clast.pred`, `tlast` | No | Supply the terminal elimination rate, predicted Clast (or `TRUE` to calculate it), and Tlast instead of having them calculated |
 | `additional.times` | No | Extra timepoints to include in the output |
 
 Interpolation and tail extrapolation follow [the dose-aware interpolation methods](https://humanpred.github.io/pknca/articles/v21-methods-for-dose-aware-interpolation-and-extrapolation.html).
+
+### Input checks and edge cases (≥ 0.13.0)
+
+- Missing (`NA`) concentrations are dropped before calculating; they used to stop the half-life fit with an error.
+- `method` and `auc.type` are checked for every input, even when the calculation needs neither interpolation nor extrapolation.
+- With `n.tau = Inf` and concentrations extrapolated as zero after `tlast` (for example `auc.type = "AUClast"` when `tlast < tau`), steady state is judged on the concentrations that can become nonzero, and a warning says that zero concentrations remain in the profile. If steady state is not reached within 10000 dosing intervals, `superposition()` stops with an error. Earlier versions looped forever in both cases.
+- Warnings and messages from `superposition()` on a `PKNCAconc` object now reach the caller on every platform. Each group runs in a forked worker, and its conditions used to be lost outside Windows.
+- Date-time sample times are an error (`pknca_error_datetime_superposition`). Superposition needs numeric times; `PKNCAdata()` converts date-times to numbers relative to the first dose.
 
 > **Limitation:** Superposition assumes linear PK. It should not be used for drugs with non-linear kinetics (e.g. Michaelis-Menten elimination, time-varying clearance, or saturable protein binding).
 
